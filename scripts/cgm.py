@@ -418,6 +418,129 @@ def show_sparkline(hours=24, use_color=True):
     print()
 
 
+def show_sparkline_week(days=7, use_color=True):
+    """
+    Display sparklines for each day, one line per day.
+    Each line shows 24 hours of data, sampled to ~48 points to fit terminal width.
+    """
+    if not ensure_data(days):
+        return
+    
+    conn = sqlite3.connect(DB_PATH)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+    
+    rows = conn.execute(
+        "SELECT sgv, date_string FROM readings WHERE date_ms >= ? AND sgv > 0 ORDER BY date_ms",
+        (cutoff_ms,)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        print("No data found for the requested period.")
+        return
+    
+    t = get_thresholds()
+    
+    # Group readings by date
+    by_date = defaultdict(list)
+    for sgv, ds in rows:
+        try:
+            dt = datetime.fromisoformat(ds.replace("Z", "+00:00"))
+            date_key = dt.strftime("%Y-%m-%d")
+            by_date[date_key].append((dt.hour + dt.minute/60, sgv))
+        except (ValueError, TypeError):
+            pass
+    
+    if use_color:
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
+        BOLD = '\033[1m'
+        DIM = '\033[2m'
+    else:
+        GREEN = YELLOW = RED = RESET = BOLD = DIM = ''
+    
+    blocks = " ▁▂▃▄▅▆▇█"
+    
+    print(f"\n{BOLD}Glucose Sparklines (Last {days} Days){RESET}")
+    print(f"  {DIM}midnight                  noon                  midnight{RESET}")
+    print(f"  {DIM}|                         |                         |{RESET}")
+    
+    # Sort dates and show most recent at top
+    sorted_dates = sorted(by_date.keys(), reverse=True)
+    
+    for date_str in sorted_dates[:days]:
+        readings = by_date[date_str]
+        if not readings:
+            continue
+        
+        # Create 48 buckets (30-min intervals)
+        buckets = [[] for _ in range(48)]
+        for hour_frac, sgv in readings:
+            bucket_idx = int(hour_frac * 2)  # 2 buckets per hour
+            bucket_idx = max(0, min(47, bucket_idx))
+            buckets[bucket_idx].append(sgv)
+        
+        # Build sparkline
+        sparkline = []
+        for bucket in buckets:
+            if not bucket:
+                sparkline.append(f"{DIM}·{RESET}" if use_color else "·")
+            else:
+                avg_sgv = sum(bucket) / len(bucket)
+                
+                # Color based on range
+                if use_color:
+                    if avg_sgv < t["urgent_low"]:
+                        color = RED
+                    elif avg_sgv < t["target_low"]:
+                        color = YELLOW
+                    elif avg_sgv <= t["target_high"]:
+                        color = GREEN
+                    elif avg_sgv <= t["urgent_high"]:
+                        color = YELLOW
+                    else:
+                        color = RED
+                else:
+                    color = ''
+                
+                # Normalize to block character
+                clamped = max(40, min(400, avg_sgv))
+                normalized = (clamped - 40) / 360
+                idx = int(normalized * 8)
+                idx = max(0, min(8, idx))
+                sparkline.append(f"{color}{blocks[idx]}{RESET}" if use_color else blocks[idx])
+        
+        spark_str = "".join(sparkline)
+        
+        # Calculate day stats
+        day_values = [r[1] for r in readings]
+        avg = sum(day_values) / len(day_values)
+        in_range = sum(1 for v in day_values if t["target_low"] <= v <= t["target_high"])
+        tir = (in_range / len(day_values)) * 100
+        
+        # Parse date for display
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        day_name = dt.strftime("%a")
+        date_display = dt.strftime("%m/%d")
+        
+        # TIR color
+        if tir >= 80:
+            tir_color = GREEN
+        elif tir >= 70:
+            tir_color = YELLOW
+        else:
+            tir_color = RED
+        
+        print(f"  {day_name} {date_display} {spark_str} {tir_color}{tir:3.0f}%{RESET} avg:{convert_glucose(avg):.0f}")
+    
+    print(f"\n  {GREEN}█{RESET} In Range  {YELLOW}█{RESET} Low/High  {RED}█{RESET} Urgent  {DIM}·{RESET} No data")
+    print(f"  Target: {convert_glucose(t['target_low'])}-{convert_glucose(t['target_high'])} {get_unit_label()}")
+    print()
+
+
 def show_heatmap(days=90, use_color=True):
     """Display a terminal heatmap of time-in-range by day and hour."""
     if not ensure_data(days):
@@ -923,6 +1046,10 @@ def main():
         help="Show compact sparkline of recent readings"
     )
     chart_parser.add_argument(
+        "--week", action="store_true",
+        help="Show sparklines for each day (one line per day)"
+    )
+    chart_parser.add_argument(
         "--hours", type=int, default=24,
         help="Hours of data for sparkline (default: 24)"
     )
@@ -953,7 +1080,9 @@ def main():
         result = find_patterns(args.days)
     elif args.command == "chart":
         use_color = args.color
-        if args.sparkline:
+        if args.week:
+            show_sparkline_week(args.days, use_color=use_color)
+        elif args.sparkline:
             show_sparkline(args.hours, use_color=use_color)
         elif args.heatmap:
             show_heatmap(args.days, use_color=use_color)

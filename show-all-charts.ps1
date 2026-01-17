@@ -9,9 +9,9 @@ Write-Host "══════════════════════�
 Write-Host "  NIGHTSCOUT CGM ANALYSIS - LAST 30 DAYS" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 
-Write-Host "`n📈 SPARKLINE (Last 48 hours)" -ForegroundColor Yellow
+Write-Host "`n📈 WEEKLY SPARKLINES (Last 14 days, one line per day)" -ForegroundColor Yellow
 Write-Host "─────────────────────────────────────────────────────────────────"
-python $scriptPath chart --sparkline --hours 48 --color
+python $scriptPath chart --week --days 14 --color
 
 Write-Host "`n🗓️  WEEKLY HEATMAP (Time-in-Range by Day/Hour)" -ForegroundColor Yellow
 Write-Host "─────────────────────────────────────────────────────────────────"
