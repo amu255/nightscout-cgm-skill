@@ -5,6 +5,44 @@
 
 > **⚠️ Disclaimer:** We are not doctors. This is DIY body hacking by and for the diabetes community. If you're using Nightscout, you already know the deal: **don't trust anyone or anything to make decisions about your blood sugar except yourself.** This tool is for informational purposes only and should never replace medical advice, your own judgment, or looking at your actual CGM.
 
+## Privacy & Data Architecture
+
+**Your glucose data stays on your machine.** Here's how it works:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         YOUR MACHINE                                 │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
+│  │ Copilot CLI │───▶│  cgm.py     │───▶│ SQLite DB (cgm_data.db) │  │
+│  │ (local)     │    │  (local)    │    │ (local file)            │  │
+│  └─────────────┘    └──────┬──────┘    └─────────────────────────┘  │
+│                            │                                         │
+└────────────────────────────┼─────────────────────────────────────────┘
+                             │ HTTPS (fetch only)
+                             ▼
+                    ┌─────────────────┐
+                    │ YOUR Nightscout │
+                    │ (your server)   │
+                    └─────────────────┘
+```
+
+**What stays local:**
+- ✅ SQLite database with your glucose readings (stored in the skill directory)
+- ✅ All analysis (statistics, time-in-range, GMI, patterns) computed locally by Python
+- ✅ The script runs entirely on your machine
+
+**What the AI sees:**
+- Only the JSON output you request (e.g., `{"glucose": 152, "status": "in range"}`)
+- This is just text in your conversation - same as if you typed it yourself
+- The AI cannot access your Nightscout directly or read your SQLite database
+
+**What the AI does NOT have access to:**
+- ❌ Your Nightscout URL or API credentials
+- ❌ Your SQLite database file
+- ❌ Your historical readings (unless you explicitly ask for analysis)
+
+The skill simply runs a local Python script and returns text output. Your health data never leaves your machine except to fetch from your own Nightscout server (which you already trust).
+
 An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Continuous Glucose Monitor (CGM) data from [Nightscout](http://www.nightscout.info/). Works with GitHub Copilot CLI, Claude Code, and VS Code agent mode.
 
 ## What It Does
