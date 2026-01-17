@@ -282,8 +282,8 @@ def get_current_glucose():
     return {"error": "No data available"}
 
 
-def show_heatmap(days=90):
-    """Display a colored terminal heatmap of time-in-range by day and hour."""
+def show_heatmap(days=90, use_color=True):
+    """Display a terminal heatmap of time-in-range by day and hour."""
     if not DB_PATH.exists():
         print("No database found. Run 'refresh' command first.")
         return
@@ -309,46 +309,93 @@ def show_heatmap(days=90):
     days_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     t = get_thresholds()
 
-    # ANSI colors
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    ORANGE = '\033[38;5;208m'
-    RED = '\033[91m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+    if use_color:
+        # ANSI colors for direct terminal use
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        ORANGE = '\033[38;5;208m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
+        BOLD = '\033[1m'
 
-    def tir_block(values):
-        if not values:
-            return ' '
-        tir = sum(1 for v in values if t["target_low"] <= v <= t["target_high"]) / len(values) * 100
-        if tir >= 90:
-            return f'{GREEN}█{RESET}'
-        if tir >= 80:
-            return f'{YELLOW}█{RESET}'
-        if tir >= 70:
-            return f'{ORANGE}█{RESET}'
-        return f'{RED}█{RESET}'
+        def tir_block(values):
+            if not values:
+                return ' '
+            tir = sum(1 for v in values if t["target_low"] <= v <= t["target_high"]) / len(values) * 100
+            if tir >= 90:
+                return f'{GREEN}█{RESET}'
+            if tir >= 80:
+                return f'{YELLOW}█{RESET}'
+            if tir >= 70:
+                return f'{ORANGE}█{RESET}'
+            return f'{RED}█{RESET}'
 
-    print()
-    print(f'  {BOLD}Time-in-Range Heatmap ({days} days){RESET}')
-    print(f'  {GREEN}█{RESET} >90%  {YELLOW}█{RESET} 80-90%  {ORANGE}█{RESET} 70-80%  {RED}█{RESET} <70%')
-    print()
-    print('       0  2  4  6  8 10 12 14 16 18 20 22')
-    print('      ' + '─' * 48)
+        print()
+        print(f'  {BOLD}Time-in-Range Heatmap ({days} days){RESET}')
+        print(f'  {GREEN}█{RESET} >90%  {YELLOW}█{RESET} 80-90%  {ORANGE}█{RESET} 70-80%  {RED}█{RESET} <70%')
+        print()
+        print('       0  2  4  6  8 10 12 14 16 18 20 22')
+        print('      ' + '─' * 48)
 
-    for d in range(7):
-        row = ''
-        for h in range(24):
-            row += tir_block(by_day_hour.get((d, h), [])) + ' '
-        print(f'  {days_names[d]} │{row}│')
+        for d in range(7):
+            row = ''
+            for h in range(24):
+                row += tir_block(by_day_hour.get((d, h), [])) + ' '
+            print(f'  {days_names[d]} │{row}│')
 
-    print('      ' + '─' * 48)
-    print('       12am     6am      12pm     6pm      12am')
-    print()
+        print('      ' + '─' * 48)
+        print('       12am     6am      12pm     6pm      12am')
+        print()
+    else:
+        # ASCII for Copilot/non-color terminals
+        def tir_block(values):
+            if not values:
+                return ' '
+            tir = sum(1 for v in values if t["target_low"] <= v <= t["target_high"]) / len(values) * 100
+            if tir >= 90:
+                return '+'
+            if tir >= 80:
+                return 'o'
+            if tir >= 70:
+                return '*'
+            return 'X'
+
+        print()
+        print(f'  Time-in-Range Heatmap ({days} days)')
+        print('  + >90%   o 80-90%   * 70-80%   X <70%')
+        print()
+        print('       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3')
+        print('       a a a a a a a a a a a a p p p p p p p p p p p p')
+        print('      ------------------------------------------------')
+
+        for d in range(7):
+            row = ''
+            for h in range(24):
+                row += tir_block(by_day_hour.get((d, h), [])) + ' '
+            print(f'  {days_names[d]} |{row}|')
+
+        print('      ------------------------------------------------')
+        print()
+
+        # Show problem spots
+        problems = []
+        for d in range(7):
+            for h in range(24):
+                vals = by_day_hour.get((d, h), [])
+                if vals:
+                    tir = sum(1 for v in vals if t["target_low"] <= v <= t["target_high"]) / len(vals) * 100
+                    if tir < 70:
+                        problems.append((days_names[d], h, tir))
+        
+        if problems:
+            print('  Problem spots (X = <70% in range):')
+            for day, hour, tir in problems:
+                print(f'    {day} {hour:02d}:00 - {tir:.0f}% in range')
+            print()
 
 
-def show_day_chart(day_name, days=90):
-    """Display a colored bar chart for a specific day."""
+def show_day_chart(day_name, days=90, use_color=True):
+    """Display a bar chart for a specific day."""
     if not DB_PATH.exists():
         print("No database found. Run 'refresh' command first.")
         return
@@ -379,44 +426,72 @@ def show_day_chart(day_name, days=90):
             pass
 
     t = get_thresholds()
-    
-    # ANSI colors
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
 
-    print()
-    print(f'  {BOLD}{day_name.capitalize()} Glucose by Hour ({days} days){RESET}')
-    print('  ' + '─' * 50)
-    print()
+    if use_color:
+        # ANSI colors for direct terminal use
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
+        BOLD = '\033[1m'
 
-    for h in range(24):
-        values = hourly.get(h, [])
-        if not values:
-            continue
-        avg = sum(values) / len(values)
-        
-        # Color based on average
-        if avg < t["target_low"]:
-            color = RED
-        elif avg > t["target_high"]:
-            color = YELLOW
-        else:
-            color = GREEN
-        
-        # Bar length (scale 50-200 to 0-30 chars)
-        bar_len = max(0, min(30, int((avg - 50) / 150 * 30)))
-        bar = '█' * bar_len
-        
-        status = '✓' if t["target_low"] <= avg <= t["target_high"] else '!'
-        converted = convert_glucose(round(avg))
-        print(f'  {h:02d}:00 │{color}{bar:<30}{RESET}│ {converted} {status}')
+        print()
+        print(f'  {BOLD}{day_name.capitalize()} Glucose by Hour ({days} days){RESET}')
+        print('  ' + '─' * 50)
+        print()
 
-    print()
-    print(f'  Target: {convert_glucose(t["target_low"])}-{convert_glucose(t["target_high"])} {get_unit_label()}')
-    print()
+        for h in range(24):
+            values = hourly.get(h, [])
+            if not values:
+                continue
+            avg = sum(values) / len(values)
+            
+            if avg < t["target_low"]:
+                color = RED
+            elif avg > t["target_high"]:
+                color = YELLOW
+            else:
+                color = GREEN
+            
+            bar_len = max(0, min(30, int((avg - 50) / 150 * 30)))
+            bar = '█' * bar_len
+            
+            status = '✓' if t["target_low"] <= avg <= t["target_high"] else '!'
+            converted = convert_glucose(round(avg))
+            print(f'  {h:02d}:00 │{color}{bar:<30}{RESET}│ {converted} {status}')
+
+        print()
+        print(f'  Target: {convert_glucose(t["target_low"])}-{convert_glucose(t["target_high"])} {get_unit_label()}')
+        print()
+    else:
+        # ASCII version for Copilot
+        print()
+        print(f'  {day_name.capitalize()} Glucose by Hour ({days} days)')
+        print('  ' + '-' * 50)
+        print()
+
+        for h in range(24):
+            values = hourly.get(h, [])
+            if not values:
+                continue
+            avg = sum(values) / len(values)
+            
+            bar_len = max(0, min(30, int((avg - 50) / 150 * 30)))
+            bar = '#' * bar_len
+            
+            if avg < t["target_low"]:
+                status = 'LOW'
+            elif avg > t["target_high"]:
+                status = 'HIGH'
+            else:
+                status = 'ok'
+            
+            converted = convert_glucose(round(avg))
+            print(f'  {h:02d}:00 |{bar:<30}| {converted} {status}')
+
+        print()
+        print(f'  Target: {convert_glucose(t["target_low"])}-{convert_glucose(t["target_high"])} {get_unit_label()}')
+        print()
 
 
 def query_patterns(days=90, day_of_week=None, hour_start=None, hour_end=None):
@@ -709,6 +784,10 @@ def main():
         "--day", type=str,
         help="Show hourly chart for specific day (e.g., Saturday)"
     )
+    chart_parser.add_argument(
+        "--color", action="store_true",
+        help="Use ANSI colors (for direct terminal use, not inside Copilot)"
+    )
 
     args = parser.parse_args()
 
@@ -731,12 +810,13 @@ def main():
     elif args.command == "patterns":
         result = find_patterns(args.days)
     elif args.command == "chart":
+        use_color = args.color
         if args.heatmap:
-            show_heatmap(args.days)
+            show_heatmap(args.days, use_color=use_color)
         elif args.day:
-            show_day_chart(args.day, args.days)
+            show_day_chart(args.day, args.days, use_color=use_color)
         else:
-            show_heatmap(args.days)  # Default to heatmap
+            show_heatmap(args.days, use_color=use_color)  # Default to heatmap
         sys.exit(0)
     else:
         parser.print_help()
