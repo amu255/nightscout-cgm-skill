@@ -26,7 +26,24 @@ Where `<skill-path>` is the location where this skill is installed (e.g., `~/.co
 | `refresh [--days N]` | Fetch latest data from Nightscout |
 | `patterns [--days N]` | Find interesting patterns (best/worst times, problem areas) |
 | `query [options]` | Query with filters (day of week, time range) |
+| `day <date> [options]` | View all readings for a specific date |
+| `worst [options]` | Find your worst days for glucose control |
 | `chart [options]` | Terminal visualizations (heatmap, sparkline, day chart) |
+
+### Day Command
+
+View detailed readings for a specific date:
+- `day <date>` - Date can be 'today', 'yesterday', '2026-01-16', or 'Jan 16'
+- `--hour-start H` - Start hour for time window (0-23)
+- `--hour-end H` - End hour for time window (0-23)
+
+### Worst Command
+
+Find your worst days ranked by peak glucose:
+- `--days N` - Number of days to search (default: 21)
+- `--hour-start H` - Start hour for time window (0-23)
+- `--hour-end H` - End hour for time window (0-23)
+- `--limit N` - Number of worst days to show (default: 5)
 
 ### Query Options
 
@@ -41,8 +58,11 @@ The `query` command supports flexible filtering:
 The `chart` command creates terminal visualizations:
 - `--sparkline` - Compact trend line using Unicode blocks (▁▂▃▄▅▆▇█)
 - `--hours N` - Hours of data for sparkline (default: 24)
+- `--date DATE` - Specific date for sparkline (e.g., today, yesterday, 2026-01-16)
+- `--hour-start H` - Start hour for sparkline time window (0-23)
+- `--hour-end H` - End hour for sparkline time window (0-23)
 - `--heatmap` - Weekly grid showing time-in-range by day and hour
-- `--day NAME` - Hourly breakdown for a specific day
+- `--day NAME` - Hourly breakdown for a specific day of week
 - `--color` - Use ANSI colors (for direct terminal, not inside Copilot)
 
 ### Examples
@@ -57,6 +77,12 @@ python scripts/cgm.py analyze --days 30
 # Find patterns automatically (best/worst times, problem areas)
 python scripts/cgm.py patterns
 
+# What happened yesterday during lunch (11am-2pm)?
+python scripts/cgm.py day yesterday --hour-start 11 --hour-end 14
+
+# Find my worst lunch days in the last 3 weeks
+python scripts/cgm.py worst --days 21 --hour-start 11 --hour-end 14
+
 # What happens on Tuesdays after lunch?
 python scripts/cgm.py query --day Tuesday --hour-start 12 --hour-end 15
 
@@ -69,6 +95,9 @@ python scripts/cgm.py query --hour-start 6 --hour-end 10
 
 # Show sparkline of last 24 hours (compact visual trend)
 python scripts/cgm.py chart --sparkline --hours 24
+
+# Show sparkline for a specific date and time range (with colors)
+python scripts/cgm.py chart --date yesterday --hour-start 11 --hour-end 15 --color
 
 # Show heatmap of time-in-range by day/hour
 python scripts/cgm.py chart --heatmap
@@ -96,6 +125,9 @@ With the pattern analysis capabilities, you can ask natural questions like:
 - "Show me a sparkline of my last 24 hours"
 - "Show me a heatmap of my glucose"
 - "What does Saturday look like?"
+- "What was my worst lunch this week?" (you'll be asked what hours you eat lunch)
+- "Show me what happened yesterday during dinner"
+- "What were my worst days for breakfast the last two weeks?"
 
 ## Output Interpretation
 

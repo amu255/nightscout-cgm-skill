@@ -13,6 +13,8 @@ An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Conti
 
 - **Current Glucose** - Real-time blood glucose with trend direction
 - **Pattern Analysis** - Find your best/worst times, problem days, overnight patterns
+- **Specific Day Analysis** - Drill into what happened on a particular date
+- **Worst Days Finder** - Find your problem days ranked by peak glucose
 - **Time Queries** - "What happens Tuesdays after lunch?" 
 - **Terminal Visualizations** - Heatmaps, sparklines, and day charts
 - **Statistics** - Time-in-range, GMI (estimated A1C), glucose variability
@@ -30,6 +32,8 @@ Just ask naturally:
 "Show me a sparkline of my last 24 hours"
 "Show me a heatmap of my glucose"
 "What does Saturday look like?"
+"What was my worst lunch this week?"
+"Show me what happened yesterday during dinner"
 ```
 
 Or use the CLI directly:
@@ -40,6 +44,15 @@ python scripts/cgm.py current
 
 # Find patterns (best/worst times, problem areas)
 python scripts/cgm.py patterns
+
+# What happened yesterday at lunch (11am-2pm)?
+python scripts/cgm.py day yesterday --hour-start 11 --hour-end 14
+
+# Find worst lunch days in last 3 weeks
+python scripts/cgm.py worst --days 21 --hour-start 11 --hour-end 14
+
+# Sparkline for a specific date and time window (with colors)
+python scripts/cgm.py chart --date yesterday --hour-start 11 --hour-end 14 --color
 
 # Tuesdays after lunch
 python scripts/cgm.py query --day Tuesday --hour-start 12 --hour-end 15
@@ -182,6 +195,12 @@ Just ask naturally:
 - "What day of the week is my best for time-in-range?"
 - "Show me my morning patterns"
 
+**Specific day analysis:**
+- "What was my worst lunch this week?" (you'll be asked what hours you eat lunch)
+- "Show me what happened yesterday during dinner"
+- "What were my worst breakfast days the last two weeks?"
+- "What did my blood sugar do on January 16th between 11am and 3pm?"
+
 **Visualizations:**
 - "Show me a sparkline of my last 24 hours"
 - "Show me a heatmap of my glucose"
@@ -202,6 +221,13 @@ python scripts/cgm.py analyze --days 30
 # Find patterns automatically (best/worst times, problem areas)
 python scripts/cgm.py patterns
 
+# View all readings for a specific date
+python scripts/cgm.py day yesterday
+python scripts/cgm.py day 2026-01-16 --hour-start 11 --hour-end 14
+
+# Find your worst days (ranked by peak glucose)
+python scripts/cgm.py worst --days 21 --hour-start 11 --hour-end 14
+
 # What happens on Tuesdays after lunch?
 python scripts/cgm.py query --day Tuesday --hour-start 12 --hour-end 15
 
@@ -216,6 +242,9 @@ python scripts/cgm.py chart --sparkline
 
 # Show sparkline of last 6 hours
 python scripts/cgm.py chart --sparkline --hours 6
+
+# Show sparkline for a specific date and time range
+python scripts/cgm.py chart --date yesterday --hour-start 11 --hour-end 14 --color
 
 # Show week view (one sparkline per day - great for terminals!)
 python scripts/cgm.py chart --week --days 14 --color

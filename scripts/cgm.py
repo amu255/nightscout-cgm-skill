@@ -76,7 +76,8 @@ def get_thresholds():
         "target_high": thresholds.get("bgTargetTop", 180),
         "urgent_high": thresholds.get("bgHigh", 250),
     }
-SKILL_DIR = Path(__file__).parent.parent
+
+SKILL_DIR= Path(__file__).parent.parent
 DB_PATH = SKILL_DIR / "cgm_data.db"
 
 
@@ -326,22 +327,56 @@ def make_sparkline(values, min_val=40, max_val=400):
     return "".join(sparkline)
 
 
-def show_sparkline(hours=24, use_color=True):
+def show_sparkline(hours=24, use_color=True, date_str=None, hour_start=None, hour_end=None):
     """
-    Display a sparkline of recent glucose readings.
-    Shows one character per reading (typically every 5 minutes).
+    Display a sparkline of glucose readings.
+    If date_str is provided, shows that specific date (with optional hour range).
+    Otherwise shows the last N hours from now.
     """
     if not ensure_data():
         return
     
     conn = sqlite3.connect(DB_PATH)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    cutoff_ms = int(cutoff.timestamp() * 1000)
     
-    rows = conn.execute(
-        "SELECT sgv, date_string FROM readings WHERE date_ms >= ? AND sgv > 0 ORDER BY date_ms",
-        (cutoff_ms,)
-    ).fetchall()
+    if date_str:
+        # Specific date mode
+        try:
+            target_date = parse_date_arg(date_str)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+        
+        query = """
+        SELECT sgv, date_string FROM readings 
+        WHERE date(datetime(date_ms/1000, 'unixepoch', 'localtime')) = ?
+          AND sgv > 0
+        """
+        params = [target_date.isoformat()]
+        
+        if hour_start is not None and hour_end is not None:
+            query += """ AND CAST(strftime('%H', datetime(date_ms/1000, 'unixepoch', 'localtime')) AS INTEGER) 
+                         BETWEEN ? AND ?"""
+            params.extend([hour_start, hour_end])
+        
+        query += " ORDER BY date_ms"
+        rows = conn.execute(query, params).fetchall()
+        
+        # Build title
+        if hour_start is not None:
+            title = f"{target_date.strftime('%b %d')} {hour_start}:00-{hour_end}:59"
+        else:
+            title = target_date.strftime('%b %d')
+    else:
+        # Recent hours mode (original behavior)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        cutoff_ms = int(cutoff.timestamp() * 1000)
+        
+        rows = conn.execute(
+            "SELECT sgv, date_string FROM readings WHERE date_ms >= ? AND sgv > 0 ORDER BY date_ms",
+            (cutoff_ms,)
+        ).fetchall()
+        title = f"{hours}h"
+    
     conn.close()
     
     if not rows:
@@ -358,10 +393,10 @@ def show_sparkline(hours=24, use_color=True):
     in_range = sum(1 for v in values if t["target_low"] <= v <= t["target_high"])
     tir = (in_range / len(values)) * 100
     
-    # Get time range
+    # Get time range (convert to local time for display)
     try:
-        first_dt = datetime.fromisoformat(rows[0][1].replace("Z", "+00:00"))
-        last_dt = datetime.fromisoformat(rows[-1][1].replace("Z", "+00:00"))
+        first_dt = datetime.fromisoformat(rows[0][1].replace("Z", "+00:00")).astimezone()
+        last_dt = datetime.fromisoformat(rows[-1][1].replace("Z", "+00:00")).astimezone()
     except (ValueError, TypeError):
         print("Error: Invalid date format in database. Try running 'refresh' command.")
         return
@@ -397,13 +432,13 @@ def show_sparkline(hours=24, use_color=True):
             sparkline.append(f"{color}{blocks[idx]}{RESET}")
         
         spark_str = "".join(sparkline)
-        print(f"\n{BOLD}Glucose Sparkline ({hours}h){RESET}")
+        print(f"\n{BOLD}Glucose Sparkline ({title}){RESET}")
         print(f"  {first_dt.strftime('%H:%M')} {spark_str} {last_dt.strftime('%H:%M')}")
         print(f"\n  {GREEN}█{RESET} In Range ({convert_glucose(t['target_low'])}-{convert_glucose(t['target_high'])} {get_unit_label()})  {YELLOW}█{RESET} Low/High  {RED}█{RESET} Urgent")
     else:
         # ASCII mode - no colors
         spark_str = make_sparkline(values)
-        print(f"\nGlucose Sparkline ({hours}h)")
+        print(f"\nGlucose Sparkline ({title})")
         print(f"  {first_dt.strftime('%H:%M')} {spark_str} {last_dt.strftime('%H:%M')}")
         print(f"\n  Target: {convert_glucose(t['target_low'])}-{convert_glucose(t['target_high'])} {get_unit_label()}")
     
@@ -970,6 +1005,203 @@ def find_patterns(days=90):
     }
 
 
+def parse_date_arg(date_str):
+    """Parse a date argument like 'today', 'yesterday', '2026-01-16', or 'Jan 16'."""
+    date_str = date_str.lower().strip()
+    today = datetime.now().date()
+    
+    if date_str == "today":
+        return today
+    elif date_str == "yesterday":
+        return today - timedelta(days=1)
+    
+    # Try ISO format (2026-01-16)
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+    
+    # Try short formats (Jan 16, January 16)
+    for fmt in ["%b %d", "%B %d", "%m/%d", "%m-%d"]:
+        try:
+            parsed = datetime.strptime(date_str, fmt).date()
+            # Assume current year
+            return parsed.replace(year=today.year)
+        except ValueError:
+            pass
+    
+    raise ValueError(f"Could not parse date: {date_str}. Try 'today', 'yesterday', '2026-01-16', or 'Jan 16'")
+
+
+def view_day(date_str, hour_start=None, hour_end=None):
+    """
+    View all glucose readings for a specific date.
+    Shows detailed timeline with trends and statistics.
+    """
+    if not ensure_data(90):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
+    
+    try:
+        target_date = parse_date_arg(date_str)
+    except ValueError as e:
+        return {"error": str(e)}
+    
+    conn = sqlite3.connect(DB_PATH)
+    
+    # Build query for the specific date
+    query = """
+    SELECT sgv, date_ms, date_string, direction
+    FROM readings
+    WHERE date(datetime(date_ms/1000, 'unixepoch', 'localtime')) = ?
+    """
+    params = [target_date.isoformat()]
+    
+    # Add hour filter if specified
+    if hour_start is not None and hour_end is not None:
+        query += """ AND CAST(strftime('%H', datetime(date_ms/1000, 'unixepoch', 'localtime')) AS INTEGER) 
+                     BETWEEN ? AND ?"""
+        params.extend([hour_start, hour_end])
+    
+    query += " ORDER BY date_ms"
+    
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    
+    if not rows:
+        return {"error": f"No readings found for {target_date.isoformat()}"}
+    
+    t = get_thresholds()
+    readings = []
+    sgv_values = []
+    
+    for sgv, date_ms, date_string, direction in rows:
+        try:
+            dt = datetime.fromisoformat(date_string.replace("Z", "+00:00"))
+            local_time = dt.astimezone().strftime("%H:%M")
+        except (ValueError, TypeError):
+            local_time = "??:??"
+        
+        status = "in_range"
+        if sgv < t["urgent_low"]:
+            status = "very_low"
+        elif sgv < t["target_low"]:
+            status = "low"
+        elif sgv > t["urgent_high"]:
+            status = "very_high"
+        elif sgv > t["target_high"]:
+            status = "high"
+        
+        readings.append({
+            "time": local_time,
+            "glucose": convert_glucose(sgv),
+            "trend": direction or "Unknown",
+            "status": status
+        })
+        sgv_values.append(sgv)
+    
+    # Calculate statistics
+    avg_sgv = sum(sgv_values) / len(sgv_values)
+    min_sgv = min(sgv_values)
+    max_sgv = max(sgv_values)
+    in_range = sum(1 for v in sgv_values if t["target_low"] <= v <= t["target_high"])
+    tir_pct = (in_range / len(sgv_values)) * 100
+    
+    # Find peak and trough times
+    peak_idx = sgv_values.index(max_sgv)
+    trough_idx = sgv_values.index(min_sgv)
+    
+    time_filter = None
+    if hour_start is not None:
+        time_filter = f"hours={hour_start}:00-{hour_end}:00"
+    
+    return {
+        "date": target_date.isoformat(),
+        "filter": time_filter,
+        "readings_count": len(readings),
+        "statistics": {
+            "average": convert_glucose(round(avg_sgv)),
+            "min": convert_glucose(min_sgv),
+            "max": convert_glucose(max_sgv),
+            "time_in_range_pct": round(tir_pct, 1),
+            "peak_time": readings[peak_idx]["time"],
+            "trough_time": readings[trough_idx]["time"]
+        },
+        "readings": readings,
+        "unit": get_unit_label()
+    }
+
+
+def find_worst_days(days=21, hour_start=None, hour_end=None, limit=5):
+    """
+    Find the worst days for glucose control in a given period.
+    Ranks days by peak glucose and time out of range.
+    """
+    if not ensure_data(days):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
+    
+    conn = sqlite3.connect(DB_PATH)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+    
+    t = get_thresholds()
+    
+    # Build query
+    query = """
+    SELECT date(datetime(date_ms/1000, 'unixepoch', 'localtime')) as day,
+           MAX(sgv) as peak,
+           MIN(sgv) as trough,
+           AVG(sgv) as avg_glucose,
+           COUNT(*) as readings,
+           SUM(CASE WHEN sgv > ? THEN 1 ELSE 0 END) as high_count,
+           SUM(CASE WHEN sgv < ? THEN 1 ELSE 0 END) as low_count,
+           SUM(CASE WHEN sgv BETWEEN ? AND ? THEN 1 ELSE 0 END) as in_range_count
+    FROM readings
+    WHERE date_ms >= ?
+    """
+    params = [t["target_high"], t["target_low"], t["target_low"], t["target_high"], cutoff_ms]
+    
+    if hour_start is not None and hour_end is not None:
+        query += """ AND CAST(strftime('%H', datetime(date_ms/1000, 'unixepoch', 'localtime')) AS INTEGER) 
+                     BETWEEN ? AND ?"""
+        params.extend([hour_start, hour_end])
+    
+    query += " GROUP BY day ORDER BY peak DESC"
+    
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    
+    if not rows:
+        return {"error": "No data found for the specified period."}
+    
+    # Process and rank days
+    worst_days = []
+    for row in rows[:limit]:
+        day, peak, trough, avg, readings, high_count, low_count, in_range_count = row
+        tir_pct = (in_range_count / readings) * 100 if readings > 0 else 0
+        
+        worst_days.append({
+            "date": day,
+            "peak": convert_glucose(peak),
+            "trough": convert_glucose(trough),
+            "average": convert_glucose(round(avg)),
+            "readings": readings,
+            "time_in_range_pct": round(tir_pct, 1),
+            "high_readings": high_count,
+            "low_readings": low_count
+        })
+    
+    time_filter = None
+    if hour_start is not None:
+        time_filter = f"hours={hour_start}:00-{hour_end}:00"
+    
+    return {
+        "days_analyzed": days,
+        "filter": time_filter,
+        "worst_days": worst_days,
+        "unit": get_unit_label()
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Nightscout CGM data fetcher and analyzer"
@@ -1025,7 +1257,45 @@ def main():
         help="Number of days to analyze (default: 90)"
     )
 
-    # Chart commands - visual terminal output
+    # Day command - view readings for a specific date
+    day_parser = subparsers.add_parser(
+        "day", help="View all readings for a specific date (e.g., today, yesterday, 2026-01-16)"
+    )
+    day_parser.add_argument(
+        "date", type=str,
+        help="Date to view: 'today', 'yesterday', '2026-01-16', or 'Jan 16'"
+    )
+    day_parser.add_argument(
+        "--hour-start", type=int, choices=range(24), metavar="H",
+        help="Start hour for time window (0-23)"
+    )
+    day_parser.add_argument(
+        "--hour-end", type=int, choices=range(24), metavar="H",
+        help="End hour for time window (0-23)"
+    )
+
+    # Worst command - find problem days
+    worst_parser = subparsers.add_parser(
+        "worst", help="Find worst days for glucose control (ranked by peak glucose)"
+    )
+    worst_parser.add_argument(
+        "--days", type=int, default=21,
+        help="Number of days to search (default: 21)"
+    )
+    worst_parser.add_argument(
+        "--hour-start", type=int, choices=range(24), metavar="H",
+        help="Start hour for time window (0-23)"
+    )
+    worst_parser.add_argument(
+        "--hour-end", type=int, choices=range(24), metavar="H",
+        help="End hour for time window (0-23)"
+    )
+    worst_parser.add_argument(
+        "--limit", type=int, default=5,
+        help="Number of worst days to show (default: 5)"
+    )
+
+    # Chart commands- visual terminal output
     chart_parser = subparsers.add_parser(
         "chart", help="Show visual charts in terminal (heatmap, day chart, or sparkline)"
     )
@@ -1054,6 +1324,18 @@ def main():
         help="Hours of data for sparkline (default: 24)"
     )
     chart_parser.add_argument(
+        "--date", type=str,
+        help="Specific date for sparkline (e.g., today, yesterday, 2026-01-16)"
+    )
+    chart_parser.add_argument(
+        "--hour-start", type=int, choices=range(24), metavar="H",
+        help="Start hour for sparkline time window (0-23)"
+    )
+    chart_parser.add_argument(
+        "--hour-end", type=int, choices=range(24), metavar="H",
+        help="End hour for sparkline time window (0-23)"
+    )
+    chart_parser.add_argument(
         "--color", action="store_true",
         help="Use ANSI colors (for direct terminal use, not inside Copilot)"
     )
@@ -1078,12 +1360,31 @@ def main():
         )
     elif args.command == "patterns":
         result = find_patterns(args.days)
+    elif args.command == "day":
+        result = view_day(
+            args.date,
+            hour_start=args.hour_start,
+            hour_end=args.hour_end
+        )
+    elif args.command == "worst":
+        result = find_worst_days(
+            days=args.days,
+            hour_start=args.hour_start,
+            hour_end=args.hour_end,
+            limit=args.limit
+        )
     elif args.command == "chart":
         use_color = args.color
         if args.week:
             show_sparkline_week(args.days, use_color=use_color)
-        elif args.sparkline:
-            show_sparkline(args.hours, use_color=use_color)
+        elif args.sparkline or args.date:
+            show_sparkline(
+                hours=args.hours,
+                use_color=use_color,
+                date_str=args.date,
+                hour_start=args.hour_start,
+                hour_end=args.hour_end
+            )
         elif args.heatmap:
             show_heatmap(args.days, use_color=use_color)
         elif args.day:
