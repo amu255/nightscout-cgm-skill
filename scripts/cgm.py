@@ -30,6 +30,20 @@ if not API_BASE:
     print("Set it to your Nightscout API endpoint, e.g.:")
     print("  export NIGHTSCOUT_URL='https://your-site.herokuapp.com/api/v1/entries.json'")
     sys.exit(1)
+
+# Unit configuration - set CGM_UNITS=mmol for mmol/L output
+USE_MMOL = os.environ.get("CGM_UNITS", "").lower() == "mmol"
+MGDL_TO_MMOL = 18.0182
+
+def convert_glucose(value_mgdl):
+    """Convert mg/dL to mmol/L if configured."""
+    if USE_MMOL:
+        return round(value_mgdl / MGDL_TO_MMOL, 1)
+    return value_mgdl
+
+def get_unit_label():
+    """Get the appropriate unit label."""
+    return "mmol/L" if USE_MMOL else "mg/dL"
 SKILL_DIR = Path(__file__).parent.parent
 DB_PATH = SKILL_DIR / "cgm_data.db"
 
@@ -125,11 +139,12 @@ def get_stats(values):
     std = (sum((x - mean) ** 2 for x in values) / n) ** 0.5
     return {
         "count": n,
-        "mean": round(mean, 1),
-        "std": round(std, 1),
-        "min": values[0],
-        "max": values[-1],
-        "median": values[n // 2]
+        "mean": convert_glucose(round(mean, 1)),
+        "std": convert_glucose(round(std, 1)),
+        "min": convert_glucose(values[0]),
+        "max": convert_glucose(values[-1]),
+        "median": convert_glucose(values[n // 2]),
+        "unit": get_unit_label()
     }
 
 
@@ -184,7 +199,7 @@ def analyze_cgm(days=90):
         except (ValueError, TypeError):
             pass
 
-    hourly_avg = {h: round(sum(v) / len(v), 0) for h, v in sorted(hourly.items())}
+    hourly_avg = {h: convert_glucose(round(sum(v) / len(v), 0)) for h, v in sorted(hourly.items())}
 
     return {
         "date_range": {
@@ -199,6 +214,7 @@ def analyze_cgm(days=90):
         "cv_variability": cv,
         "cv_status": "stable" if cv < 36 else "high variability",
         "hourly_averages": hourly_avg,
+        "unit": get_unit_label()
     }
 
 
@@ -227,7 +243,8 @@ def get_current_glucose():
             status = "VERY HIGH"
 
         return {
-            "glucose_mg_dl": sgv,
+            "glucose": convert_glucose(sgv),
+            "unit": get_unit_label(),
             "trend": e.get("direction"),
             "timestamp": e.get("dateString"),
             "status": status

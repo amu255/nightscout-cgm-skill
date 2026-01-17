@@ -127,13 +127,20 @@ python scripts/cgm.py refresh --days 90
 
 ## Glucose Ranges
 
-| Range | mg/dL | Status |
-|-------|-------|--------|
-| Very Low | <54 | Dangerous hypoglycemia |
-| Low | 54-69 | Hypoglycemia |
-| In Range | 70-180 | Target range |
-| High | 181-250 | Hyperglycemia |
-| Very High | >250 | Significant hyperglycemia |
+This skill uses **mg/dL** units by default (US standard). Nightscout typically stores values in mg/dL internally.
+
+| Range | mg/dL | mmol/L | Status |
+|-------|-------|--------|--------|
+| Very Low | <54 | <3.0 | Dangerous hypoglycemia |
+| Low | 54-69 | 3.0-3.8 | Hypoglycemia |
+| In Range | 70-180 | 3.9-10.0 | Target range |
+| High | 181-250 | 10.1-13.9 | Hyperglycemia |
+| Very High | >250 | >13.9 | Significant hyperglycemia |
+
+> **Note for mmol/L users:** If your Nightscout instance is configured for mmol/L, you can set the `CGM_UNITS` environment variable to `mmol` to convert output values:
+> ```bash
+> export CGM_UNITS="mmol"
+> ```
 
 ## Key Metrics
 
