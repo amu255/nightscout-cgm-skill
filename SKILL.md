@@ -7,6 +7,16 @@ description: Analyze CGM blood glucose data from Nightscout. Use this skill when
 
 This skill provides tools for fetching and analyzing Continuous Glucose Monitor (CGM) data from Nightscout.
 
+## ⚠️ Before Making Changes
+
+**Always run tests before and after modifying `cgm.py`:**
+
+```bash
+cd <skill-path>
+python -m pytest tests/ -q           # Quick check (150 tests)
+python -m pytest tests/ --cov=scripts  # With coverage
+```
+
 ## Available Commands
 
 Run the `cgm.py` script from this skill's `scripts/` directory:

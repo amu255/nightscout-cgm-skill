@@ -362,3 +362,40 @@ This skill reads your `DISPLAY_UNITS` setting and converts automatically - you d
 - [Nightscout](http://www.nightscout.info/) - Open source CGM data platform
 - [Agent Skills](https://github.com/agentskills/agentskills) - Open standard for AI agent skills
 - [GitHub Copilot CLI](https://docs.github.com/copilot/concepts/agents/about-copilot-cli) - AI-powered terminal assistant
+
+## Development
+
+### Running Tests
+
+The skill has 150 tests covering all functionality:
+
+`ash
+cd ~/.copilot/skills/nightscout-cgm
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Quick run (just pass/fail)
+python -m pytest tests/ -q
+
+# With coverage report
+python -m pytest tests/ --cov=scripts --cov-report=term-missing
+
+# Run specific test file
+python -m pytest tests/test_real_data.py -v
+`
+
+**Always run tests before and after modifying cgm.py.**
+
+### Test Structure
+
+| File | Description |
+|------|-------------|
+| 	est_pure_functions.py | Unit conversion, stats, sparklines |
+| 	est_database.py | SQLite storage operations |
+| 	est_analysis.py | Pattern analysis, worst days |
+| 	est_charts.py | Chart rendering output |
+| 	est_cli.py | Command-line argument parsing |
+| 	est_edge_cases.py | Error handling, boundaries |
+| 	est_real_data.py | Tests using real Nightscout API responses |
+
