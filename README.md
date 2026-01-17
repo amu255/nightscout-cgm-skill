@@ -148,19 +148,18 @@ $env:NIGHTSCOUT_URL = "https://your-nightscout-site.com/api/v1/entries.json?toke
 
 ## Getting Started
 
-After installation and configuration, fetch your data:
+After installation and configuration, just start asking questions! The skill automatically fetches your data on first use.
 
-```bash
-# Fetch last 90 days of CGM data (creates local database automatically)
-python ~/.copilot/skills/nightscout-cgm/scripts/cgm.py refresh
+```
+> What's my current glucose?
 
-# Verify it's working
-python ~/.copilot/skills/nightscout-cgm/scripts/cgm.py current
+No local data found. Fetching from Nightscout (this may take a moment)...
+Fetched 31123 readings. Total: 31123
+
+{"glucose": 142, "unit": "mg/dL", "trend": "Flat", "status": "in range"}
 ```
 
-This creates a local SQLite database (`cgm_data.db`) in the skill folder. The database is automatically created on first run - you don't need to set anything up.
-
-**How often to refresh?** The skill caches data locally for fast queries. Run `refresh` periodically (daily or weekly) to pull in new readings, or just ask the AI to "refresh my CGM data".
+Data is cached locally in a SQLite database for fast queries. Run `refresh` periodically to pull in new readings, or just ask the AI to "refresh my CGM data".
 
 ## Usage
 

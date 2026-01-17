@@ -96,6 +96,29 @@ def create_database():
     return conn
 
 
+def ensure_data(days=90):
+    """
+    Ensure we have data in the database. Auto-fetches on first use.
+    Returns True if data is available, False if fetch failed.
+    """
+    if DB_PATH.exists():
+        # Check if we actually have readings
+        conn = sqlite3.connect(DB_PATH)
+        count = conn.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
+        conn.close()
+        if count > 0:
+            return True
+    
+    # No data - auto-fetch
+    print("No local data found. Fetching from Nightscout (this may take a moment)...")
+    result = fetch_and_store(days)
+    if "error" in result:
+        print(f"Error: {result['error']}")
+        return False
+    print(f"Fetched {result['new_readings']} readings. Total: {result['total_readings']}\n")
+    return True
+
+
 def fetch_and_store(days=90):
     """Fetch CGM data from Nightscout and store in database."""
     conn = create_database()
@@ -188,8 +211,8 @@ def get_time_in_range(values):
 
 def analyze_cgm(days=90):
     """Analyze CGM data from database."""
-    if not DB_PATH.exists():
-        return {"error": "No database found. Run 'refresh' command first."}
+    if not ensure_data(days):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
 
     conn = sqlite3.connect(DB_PATH)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -202,7 +225,7 @@ def analyze_cgm(days=90):
     conn.close()
 
     if not rows:
-        return {"error": "No data found for the specified period. Run 'refresh' command first."}
+        return {"error": "No data found for the specified period."}
 
     values = [r[0] for r in rows]
     stats = get_stats(values)
@@ -308,8 +331,7 @@ def show_sparkline(hours=24, use_color=True):
     Display a sparkline of recent glucose readings.
     Shows one character per reading (typically every 5 minutes).
     """
-    if not DB_PATH.exists():
-        print("No database found. Run 'refresh' command first.")
+    if not ensure_data():
         return
     
     conn = sqlite3.connect(DB_PATH)
@@ -398,8 +420,7 @@ def show_sparkline(hours=24, use_color=True):
 
 def show_heatmap(days=90, use_color=True):
     """Display a terminal heatmap of time-in-range by day and hour."""
-    if not DB_PATH.exists():
-        print("No database found. Run 'refresh' command first.")
+    if not ensure_data(days):
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -510,8 +531,7 @@ def show_heatmap(days=90, use_color=True):
 
 def show_day_chart(day_name, days=90, use_color=True):
     """Display a bar chart for a specific day."""
-    if not DB_PATH.exists():
-        print("No database found. Run 'refresh' command first.")
+    if not ensure_data(days):
         return
 
     day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -618,8 +638,8 @@ def query_patterns(days=90, day_of_week=None, hour_start=None, hour_end=None):
         hour_start: Start hour (0-23) for time window
         hour_end: End hour (0-23) for time window
     """
-    if not DB_PATH.exists():
-        return {"error": "No database found. Run 'refresh' command first."}
+    if not ensure_data(days):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
 
     conn = sqlite3.connect(DB_PATH)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -632,7 +652,7 @@ def query_patterns(days=90, day_of_week=None, hour_start=None, hour_end=None):
     conn.close()
 
     if not rows:
-        return {"error": "No data found. Run 'refresh' command first."}
+        return {"error": "No data found for the specified period."}
 
     # Parse day_of_week if it's a string name
     day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -707,8 +727,8 @@ def find_patterns(days=90):
     Automatically find interesting patterns in the data.
     Identifies best/worst times, days, and trends.
     """
-    if not DB_PATH.exists():
-        return {"error": "No database found. Run 'refresh' command first."}
+    if not ensure_data(days):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
 
     conn = sqlite3.connect(DB_PATH)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -721,7 +741,7 @@ def find_patterns(days=90):
     conn.close()
 
     if not rows:
-        return {"error": "No data found. Run 'refresh' command first."}
+        return {"error": "No data found for the specified period."}
 
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     
