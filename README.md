@@ -45,21 +45,27 @@ pip install requests
 
 ## Configuration
 
-Set the `NIGHTSCOUT_URL` environment variable to your Nightscout API endpoint:
+Set the `NIGHTSCOUT_URL` environment variable to your Nightscout API endpoint.
+
+> **⚠️ Important:** Before configuring, test your Nightscout URL in a browser to ensure it returns JSON data. If your Nightscout instance requires authentication, you'll need to include your API token as a query parameter:
+> ```
+> https://your-nightscout-site.com/api/v1/entries.json?token=YOUR_API_SECRET
+> ```
+> You can find or create API tokens in your Nightscout settings under "Admin Tools" → "Subjects".
 
 **Linux/macOS:**
 ```bash
-export NIGHTSCOUT_URL="https://your-nightscout-site.com/api/v1/entries.json"
+export NIGHTSCOUT_URL="https://your-nightscout-site.com/api/v1/entries.json?token=YOUR_API_SECRET"
 ```
 
 **Windows PowerShell:**
 ```powershell
-$env:NIGHTSCOUT_URL = "https://your-nightscout-site.com/api/v1/entries.json"
+$env:NIGHTSCOUT_URL = "https://your-nightscout-site.com/api/v1/entries.json?token=YOUR_API_SECRET"
 ```
 
 **Windows (persistent):**
 ```powershell
-[Environment]::SetEnvironmentVariable("NIGHTSCOUT_URL", "https://your-nightscout-site.com/api/v1/entries.json", "User")
+[Environment]::SetEnvironmentVariable("NIGHTSCOUT_URL", "https://your-nightscout-site.com/api/v1/entries.json?token=YOUR_API_SECRET", "User")
 ```
 
 ## Usage
