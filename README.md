@@ -3,7 +3,53 @@
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Open%20Standard-blue)](https://github.com/agentskills/agentskills)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Continuous Glucose Monitor (CGM) data from [Nightscout](http://www.nightscout.info/). Works with GitHub Copilot CLI, Claude Code, and VS Code agent mode.
+
+![Heatmap showing time-in-range by day and hour](images/heatmap.png)
+
 > **⚠️ Disclaimer:** We are not doctors. This is DIY body hacking by and for the diabetes community. If you're using Nightscout, you already know the deal: **don't trust anyone or anything to make decisions about your blood sugar except yourself.** This tool is for informational purposes only and should never replace medical advice, your own judgment, or looking at your actual CGM.
+
+## Features
+
+- **Current Glucose** - Real-time blood glucose with trend direction
+- **Pattern Analysis** - Find your best/worst times, problem days, overnight patterns
+- **Time Queries** - "What happens Tuesdays after lunch?" 
+- **Terminal Visualizations** - Heatmaps, sparklines, and day charts
+- **Statistics** - Time-in-range, GMI (estimated A1C), glucose variability
+- **Privacy-First** - All data stored and analyzed locally on your machine
+
+## Quick Examples
+
+Just ask naturally:
+
+```
+"What's my current glucose?"
+"What patterns do you see in my data?"
+"What's happening on Tuesdays after lunch?"
+"When do I tend to go low?"
+"Show me a sparkline of my last 24 hours"
+"Show me a heatmap of my glucose"
+"What does Saturday look like?"
+```
+
+Or use the CLI directly:
+
+```bash
+# Current glucose
+python scripts/cgm.py current
+
+# Find patterns (best/worst times, problem areas)
+python scripts/cgm.py patterns
+
+# Tuesdays after lunch
+python scripts/cgm.py query --day Tuesday --hour-start 12 --hour-end 15
+
+# Sparkline of last 24 hours
+python scripts/cgm.py chart --sparkline
+
+# Weekly heatmap
+python scripts/cgm.py chart --heatmap
+```
 
 ## Privacy & Data Architecture
 
@@ -42,14 +88,6 @@
 - ❌ Your historical readings (unless you explicitly ask for analysis)
 
 The skill simply runs a local Python script and returns text output. Your health data never leaves your machine except to fetch from your own Nightscout server (which you already trust).
-
-An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Continuous Glucose Monitor (CGM) data from [Nightscout](http://www.nightscout.info/). Works with GitHub Copilot CLI, Claude Code, and VS Code agent mode.
-
-## What It Does
-
-- **Current Glucose**: Get real-time blood glucose readings with trend direction
-- **CGM Analysis**: Calculate statistics, time-in-range, GMI (estimated A1C), and glucose variability
-- **Data Refresh**: Fetch and cache CGM data from your Nightscout instance
 
 ## Prerequisites
 
@@ -113,12 +151,14 @@ $env:NIGHTSCOUT_URL = "https://your-nightscout-site.com/api/v1/entries.json?toke
 ### With AI Agents
 
 Just ask naturally:
+
+**Basic queries:**
 - "What's my current glucose?"
 - "Analyze my blood sugar for the last 30 days"
 - "What's my estimated A1C?"
 - "Show me my time in range"
 
-**Pattern Analysis** - ask sophisticated questions:
+**Pattern analysis:**
 - "What patterns do you see in my data?"
 - "What's happening on Tuesdays after lunch?"
 - "When are my worst times for blood sugar control?"
@@ -126,6 +166,9 @@ Just ask naturally:
 - "When do I tend to go low?"
 - "What day of the week is my best for time-in-range?"
 - "Show me my morning patterns"
+
+**Visualizations:**
+- "Show me a sparkline of my last 24 hours"
 - "Show me a heatmap of my glucose"
 - "What does Saturday look like?"
 
@@ -149,6 +192,15 @@ python scripts/cgm.py query --day Tuesday --hour-start 12 --hour-end 15
 
 # How are my overnight numbers on weekends?
 python scripts/cgm.py query --day Saturday --hour-start 22 --hour-end 6
+
+# Morning analysis across all days
+python scripts/cgm.py query --hour-start 6 --hour-end 10
+
+# Show sparkline of last 24 hours (compact visual trend)
+python scripts/cgm.py chart --sparkline
+
+# Show sparkline of last 6 hours
+python scripts/cgm.py chart --sparkline --hours 6
 
 # Show ASCII heatmap (works inside Copilot)
 python scripts/cgm.py chart --heatmap

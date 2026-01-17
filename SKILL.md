@@ -26,6 +26,7 @@ Where `<skill-path>` is the location where this skill is installed (e.g., `~/.co
 | `refresh [--days N]` | Fetch latest data from Nightscout |
 | `patterns [--days N]` | Find interesting patterns (best/worst times, problem areas) |
 | `query [options]` | Query with filters (day of week, time range) |
+| `chart [options]` | Terminal visualizations (heatmap, sparkline, day chart) |
 
 ### Query Options
 
@@ -34,6 +35,15 @@ The `query` command supports flexible filtering:
 - `--day NAME` - Filter by day of week (e.g., Tuesday, or 0-6 where 0=Monday)
 - `--hour-start H` - Start hour for time window (0-23)
 - `--hour-end H` - End hour for time window (0-23)
+
+### Chart Options
+
+The `chart` command creates terminal visualizations:
+- `--sparkline` - Compact trend line using Unicode blocks (▁▂▃▄▅▆▇█)
+- `--hours N` - Hours of data for sparkline (default: 24)
+- `--heatmap` - Weekly grid showing time-in-range by day and hour
+- `--day NAME` - Hourly breakdown for a specific day
+- `--color` - Use ANSI colors (for direct terminal, not inside Copilot)
 
 ### Examples
 
