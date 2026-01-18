@@ -65,8 +65,12 @@ def get_nightscout_settings():
     try:
         resp = requests.get(f"{API_ROOT}/status.json", timeout=10)
         resp.raise_for_status()
-        _cached_settings = resp.json().get("settings", {})
-    except Exception:
+        data = resp.json()
+        if isinstance(data, dict):
+            _cached_settings = data.get("settings", {})
+        else:
+            _cached_settings = {}
+    except (requests.RequestException, ValueError):
         _cached_settings = {}
     
     return _cached_settings
