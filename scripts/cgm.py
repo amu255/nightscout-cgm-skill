@@ -4508,11 +4508,11 @@ def generate_agp_report(days=14, output_path=None):
             n = len(sorted_vals)
             agp_modal_day.append({
                 "hour": hour,
-                "p5": convert_glucose(sorted_vals[max(0, int(n * 0.05))]),
-                "p25": convert_glucose(sorted_vals[max(0, int(n * 0.25))]),
-                "p50": convert_glucose(sorted_vals[max(0, int(n * 0.50))]),  # median
-                "p75": convert_glucose(sorted_vals[max(0, int(n * 0.75))]),
-                "p95": convert_glucose(sorted_vals[max(0, min(n - 1, int(n * 0.95)))])
+                "p5": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.05)))]),
+                "p25": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.25)))]),
+                "p50": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.50)))]),  # median
+                "p75": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.75)))]),
+                "p95": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.95)))])
             })
         else:
             agp_modal_day.append({
@@ -4555,7 +4555,15 @@ def generate_agp_report(days=14, output_path=None):
     last_date = rows[-1][2][:10] if rows[-1][2] else "unknown"
     
     # Number of days with data
-    unique_dates = len(set(datetime.fromisoformat(r[2].replace("Z", "+00:00")).strftime("%Y-%m-%d") for r in rows if r[2]))
+    unique_date_strings = set()
+    for r in rows:
+        if r[2]:  # if date_string exists
+            try:
+                dt = datetime.fromisoformat(r[2].replace("Z", "+00:00"))
+                unique_date_strings.add(dt.strftime("%Y-%m-%d"))
+            except (ValueError, TypeError):
+                pass
+    unique_days = len(unique_date_strings)
     
     # =========================================================================
     # AGP HTML Template
@@ -4787,7 +4795,7 @@ def generate_agp_report(days=14, output_path=None):
         </div>
         
         <div class="date-range">
-            Report Period: ''' + first_date + ''' to ''' + last_date + ''' (''' + str(unique_dates) + ''' days with data)
+            Report Period: ''' + first_date + ''' to ''' + last_date + ''' (''' + str(unique_days) + ''' days with data)
         </div>
         
         <button class="print-btn no-print" onclick="window.print()">Print Report</button>
@@ -4988,28 +4996,6 @@ def generate_agp_report(days=14, output_path=None):
             }
         });
         
-        // Add target range lines
-        agpChart.options.plugins.annotation = {
-            annotations: {
-                targetLowLine: {
-                    type: 'line',
-                    yMin: targetLow,
-                    yMax: targetLow,
-                    borderColor: 'rgba(16, 185, 129, 0.5)',
-                    borderWidth: 2,
-                    borderDash: [5, 5]
-                },
-                targetHighLine: {
-                    type: 'line',
-                    yMin: targetHigh,
-                    yMax: targetHigh,
-                    borderColor: 'rgba(16, 185, 129, 0.5)',
-                    borderWidth: 2,
-                    borderDash: [5, 5]
-                }
-            }
-        };
-        
         // Daily Profiles
         const dailyProfilesContainer = document.getElementById('dailyProfiles');
         dailyProfiles.forEach((day, index) => {
@@ -5081,7 +5067,7 @@ def generate_agp_report(days=14, output_path=None):
         "days_analyzed": days,
         "readings": len(rows),
         "date_range": f"{first_date} to {last_date}",
-        "unique_days": unique_dates
+        "unique_days": unique_days
     }
 
 
