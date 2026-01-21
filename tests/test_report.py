@@ -51,7 +51,7 @@ class TestGenerateHtmlReport:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         assert "chart.js" in content.lower()
         assert "<canvas" in content
     
@@ -71,7 +71,7 @@ class TestGenerateHtmlReport:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         
         # Check for key sections
         assert "Time in Range" in content
@@ -146,7 +146,7 @@ class TestGenerateHtmlReport:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         
         # Basic HTML structure checks
         assert "<!DOCTYPE html>" in content
@@ -173,7 +173,7 @@ class TestGenerateHtmlReport:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         assert "mmol/L" in content
     
     def test_days_parameter(self, cgm_module, populated_db, tmp_path):
@@ -214,7 +214,7 @@ class TestReportCharts:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         
         # Check for TIR categories in data
         assert "very_low" in content
@@ -237,7 +237,7 @@ class TestReportCharts:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         
         # Check for modal day data structure
         assert "modalDayData" in content
@@ -261,7 +261,7 @@ class TestReportCharts:
                             output_path=str(output_path)
                         )
         
-        content = output_path.read_text()
+        content = output_path.read_text(encoding="utf-8")
         
         # Check for heatmap data
         assert "heatmapTir" in content
@@ -304,3 +304,388 @@ class TestReportCliCommand:
         assert args.days == 90
         assert args.output is None
         assert args.open is False
+
+
+class TestReportDateControls:
+    """Tests for interactive date controls in the report."""
+    
+    def test_date_controls_present(self, cgm_module, populated_db, tmp_path):
+        """Report should include date range controls."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for date control buttons
+        assert "date-btn" in content
+        assert "7 days" in content
+        assert "14 days" in content
+        assert "30 days" in content
+        assert "90 days" in content
+        assert "6 months" in content
+        assert "1 year" in content
+        assert 'data-days="0"' in content  # "All" button
+    
+    def test_date_picker_inputs_present(self, cgm_module, populated_db, tmp_path):
+        """Report should include custom date picker inputs."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for date inputs
+        assert 'id="startDate"' in content
+        assert 'id="endDate"' in content
+        assert 'type="date"' in content
+    
+    def test_date_filtering_javascript_functions(self, cgm_module, populated_db, tmp_path):
+        """Report should include JavaScript functions for date filtering."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for JS filtering functions
+        assert "function setDateRange" in content
+        assert "function applyCustomDateRange" in content
+        assert "function filterReadingsByDays" in content
+        assert "function filterReadingsByDateRange" in content
+        assert "function updateAllCharts" in content
+    
+    def test_all_readings_data_included(self, cgm_module, populated_db, tmp_path):
+        """Report should include all readings data for client-side filtering."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for all readings data array
+        assert "allReadings" in content
+        assert "const allReadings = [" in content
+
+
+class TestReportColorScheme:
+    """Tests for the CGM-style color scheme (blue lows, yellow/red highs)."""
+    
+    def test_distinct_colors_for_ranges(self, cgm_module, populated_db, tmp_path):
+        """Each glucose range should have a distinct color."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for distinct colors - blue for lows, yellow for highs
+        assert "#1d4ed8" in content  # Deep blue for very low
+        assert "#3b82f6" in content  # Light blue for low
+        assert "#10b981" in content  # Green for in-range
+        assert "#eab308" in content  # Yellow for high
+        assert "#ef4444" in content  # Red for very high
+    
+    def test_colors_in_javascript(self, cgm_module, populated_db, tmp_path):
+        """JavaScript color constants should have correct values."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Verify JS color object has correct structure
+        assert "veryLow: '#1d4ed8'" in content
+        assert "low: '#3b82f6'" in content
+        assert "inRange: '#10b981'" in content
+        assert "high: '#eab308'" in content
+        assert "veryHigh: '#ef4444'" in content
+
+
+class TestReportHeatmapHover:
+    """Tests for heatmap hover effects and tooltips."""
+    
+    def test_heatmap_hover_css(self, cgm_module, populated_db, tmp_path):
+        """Heatmap cells should have hover CSS styles."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for hover styles
+        assert ".heatmap-cell:not(.heatmap-header):not(.heatmap-label):hover" in content
+        assert "transform: scale(1.15)" in content
+        assert "box-shadow:" in content
+        assert "filter: brightness" in content
+    
+    def test_heatmap_tooltip_css(self, cgm_module, populated_db, tmp_path):
+        """Heatmap should have styled tooltip CSS."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for tooltip styles
+        assert ".heatmap-cell .tooltip" in content
+        assert ".heatmap-cell:hover .tooltip" in content
+        assert "display: block" in content
+    
+    def test_heatmap_tooltip_javascript(self, cgm_module, populated_db, tmp_path):
+        """Heatmap should create tooltip elements in JavaScript."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for tooltip creation in JS
+        assert "tooltip.className = 'tooltip'" in content
+        assert "cell.appendChild(tooltip)" in content
+        assert "Good" in content  # Status indicator
+        assert "Fair" in content
+        assert "Needs work" in content
+
+
+class TestReportCalculationFunctions:
+    """Tests for JavaScript calculation functions used in dynamic updates."""
+    
+    def test_calcstats_function(self, cgm_module, populated_db, tmp_path):
+        """Report should have calcStats function for dynamic recalculation."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        assert "function calcStats(readings)" in content
+        assert "tir:" in content  # Returns TIR data
+        assert "gmi:" in content  # Returns GMI
+        assert "cv:" in content   # Returns CV
+    
+    def test_build_functions_for_all_charts(self, cgm_module, populated_db, tmp_path):
+        """Report should have build functions for all chart types."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for all build functions
+        assert "function buildModalDay" in content
+        assert "function buildDailyStats" in content
+        assert "function buildDowStats" in content
+        assert "function buildHistogram" in content
+        assert "function buildWeeklyStats" in content
+        assert "function buildHeatmap" in content
+    
+    def test_chart_update_functions(self, cgm_module, populated_db, tmp_path):
+        """Report should have functions to update all charts."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check for chart instance variables (for updates)
+        assert "tirChart =" in content or "tirChart=" in content
+        assert "modalChart =" in content or "modalChart=" in content
+        assert "dailyChart =" in content or "dailyChart=" in content
+        assert "dowChart =" in content or "dowChart=" in content
+        assert "histChart =" in content or "histChart=" in content
+        assert "weeklyChart =" in content or "weeklyChart=" in content
+
+
+class TestReportDataIntegrity:
+    """Tests for data integrity in the report."""
+    
+    def test_readings_data_has_required_fields(self, cgm_module, populated_db, tmp_path):
+        """All readings data should have sgv, date, and direction fields."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check that readings have required structure
+        assert '"sgv":' in content
+        assert '"date":' in content
+        assert '"direction":' in content
+    
+    def test_thresholds_passed_to_javascript(self, cgm_module, populated_db, tmp_path):
+        """Thresholds should be available in JavaScript for filtering."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=7,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check thresholds object
+        assert "thresholds" in content
+        assert "urgentLow:" in content
+        assert "targetLow:" in content
+        assert "targetHigh:" in content
+        assert "urgentHigh:" in content
+    
+    def test_initial_days_parameter_passed(self, cgm_module, populated_db, tmp_path):
+        """Initial days parameter should be passed to JavaScript."""
+        output_path = tmp_path / "test_report.html"
+        
+        with patch.object(cgm_module, "DB_PATH", populated_db):
+            with patch.object(cgm_module, "ensure_data", return_value=True):
+                with patch.object(cgm_module, "use_mmol", return_value=False):
+                    with patch.object(cgm_module, "get_thresholds", return_value={
+                        "urgent_low": 55, "target_low": 70,
+                        "target_high": 180, "urgent_high": 250
+                    }):
+                        cgm_module.generate_html_report(
+                            days=30,
+                            output_path=str(output_path)
+                        )
+        
+        content = output_path.read_text(encoding="utf-8")
+        
+        # Check initial days is set
+        assert "currentDays = 30" in content or "let currentDays = 30" in content
+

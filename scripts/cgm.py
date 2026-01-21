@@ -1241,17 +1241,32 @@ def generate_html_report(days=90, output_path=None):
         return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
     
     conn = sqlite3.connect(DB_PATH)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    cutoff_ms = int(cutoff.timestamp() * 1000)
     
-    rows = conn.execute(
-        "SELECT sgv, date_ms, date_string, direction FROM readings WHERE date_ms >= ? AND sgv > 0 ORDER BY date_ms",
-        (cutoff_ms,)
+    # Fetch ALL readings for interactive filtering in the browser
+    all_rows = conn.execute(
+        "SELECT sgv, date_ms, date_string, direction FROM readings WHERE sgv > 0 ORDER BY date_ms"
     ).fetchall()
     conn.close()
     
+    if not all_rows:
+        return {"error": "No data found."}
+    
+    # Filter for the initial display (default days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+    rows = [r for r in all_rows if r[1] >= cutoff_ms]
+    
     if not rows:
         return {"error": "No data found for the specified period."}
+    
+    # Create raw readings array for JavaScript (for interactive filtering)
+    all_readings_data = []
+    for sgv, date_ms, date_str, direction in all_rows:
+        all_readings_data.append({
+            "sgv": sgv,
+            "date": date_str,
+            "direction": direction
+        })
     
     t = get_thresholds()
     unit = get_unit_label()
@@ -1460,10 +1475,89 @@ def generate_html_report(days=90, output_path=None):
             --danger: #ef4444;
             --info: #3b82f6;
             --in-range: #10b981;
-            --low: #f59e0b;
-            --high: #f59e0b;
-            --very-low: #ef4444;
+            --low: #3b82f6;
+            --high: #eab308;
+            --very-low: #1d4ed8;
             --very-high: #ef4444;
+        }
+        
+        /* Date Controls - Tally-style */
+        .date-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+            padding: 15px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+        }
+        
+        .date-controls label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-right: 8px;
+        }
+        
+        .date-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--bg-card);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        
+        .date-btn:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .date-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            font-weight: bold;
+        }
+        
+        .date-separator {
+            color: var(--text-secondary);
+            margin: 0 4px;
+        }
+        
+        .custom-date-inputs {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 16px;
+            padding-left: 16px;
+            border-left: 1px solid var(--bg-card);
+        }
+        
+        .custom-date-inputs input[type="date"] {
+            padding: 6px 10px;
+            border: 1px solid var(--bg-card);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        
+        .custom-date-inputs input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+        
+        .date-range-display {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
+        
+        .date-range-display strong {
+            color: var(--text-primary);
         }
         
         * {
@@ -1618,6 +1712,47 @@ def generate_html_report(days=90, output_path=None):
             justify-content: center;
             border-radius: 4px;
             min-width: 28px;
+            position: relative;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+        }
+        
+        .heatmap-cell:not(.heatmap-header):not(.heatmap-label):hover {
+            transform: scale(1.15);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+            filter: brightness(1.2);
+            z-index: 10;
+        }
+        
+        .heatmap-cell .tooltip {
+            display: none;
+            position: absolute;
+            bottom: 120%%;
+            left: 50%%;
+            transform: translateX(-50%%);
+            background: var(--bg-primary);
+            border: 1px solid var(--accent);
+            color: var(--text-primary);
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            white-space: nowrap;
+            z-index: 100;
+            pointer-events: none;
+        }
+        
+        .heatmap-cell .tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%%;
+            left: 50%%;
+            transform: translateX(-50%%);
+            border: 6px solid transparent;
+            border-top-color: var(--accent);
+        }
+        
+        .heatmap-cell:hover .tooltip {
+            display: block;
         }
         
         .heatmap-header {
@@ -1677,8 +1812,26 @@ def generate_html_report(days=90, output_path=None):
     <div class="container">
         <header>
             <h1>📊 Nightscout CGM Report</h1>
-            <p class="subtitle">%(first_date)s to %(last_date)s (%(days)s days) • %(readings)s readings</p>
+            <p class="subtitle" id="reportSubtitle">%(first_date)s to %(last_date)s (%(days)s days) • %(readings)s readings</p>
         </header>
+        
+        <!-- Date Range Controls (tally-style) -->
+        <div class="date-controls">
+            <label>Period:</label>
+            <button class="date-btn" onclick="setDateRange(7)" data-days="7">7 days</button>
+            <button class="date-btn" onclick="setDateRange(14)" data-days="14">14 days</button>
+            <button class="date-btn" onclick="setDateRange(30)" data-days="30">30 days</button>
+            <button class="date-btn active" onclick="setDateRange(90)" data-days="90">90 days</button>
+            <button class="date-btn" onclick="setDateRange(180)" data-days="180">6 months</button>
+            <button class="date-btn" onclick="setDateRange(365)" data-days="365">1 year</button>
+            <button class="date-btn" onclick="setDateRange(0)" data-days="0">All</button>
+            
+            <div class="custom-date-inputs">
+                <input type="date" id="startDate" onchange="applyCustomDateRange()" title="Start date">
+                <span class="date-separator">to</span>
+                <input type="date" id="endDate" onchange="applyCustomDateRange()" title="End date">
+            </div>
+        </div>
         
         <div class="disclaimer">
             ⚠️ <strong>Not medical advice.</strong> This report is for informational purposes only. 
@@ -1790,14 +1943,8 @@ def generate_html_report(days=90, output_path=None):
         Chart.defaults.color = '#aaa';
         Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
         
-        // Data from Python
-        const modalDayData = %(modal_day_json)s;
-        const dailyStats = %(daily_stats_json)s;
-        const dowStats = %(dow_stats_json)s;
-        const histogramData = %(histogram_json)s;
-        const heatmapTir = %(heatmap_json)s;
-        const weeklyStats = %(weekly_stats_json)s;
-        const tirData = %(tir_data_json)s;
+        // Raw data from Python (for filtering)
+        const allReadings = %(all_readings_json)s;
         const thresholds = {
             urgentLow: %(urgent_low)s,
             targetLow: %(target_low)s,
@@ -1805,20 +1952,490 @@ def generate_html_report(days=90, output_path=None):
             urgentHigh: %(urgent_high)s
         };
         const unit = '%(unit)s';
+        const isMMOL = %(is_mmol_js)s;
+        
+        // Current filter state
+        let currentDays = %(initial_days)s;
+        let customStartDate = null;
+        let customEndDate = null;
+        
+        // Chart instances (for updates)
+        let tirChart, modalChart, dailyChart, dowChart, histChart, weeklyChart;
         
         // Colors
         const colors = {
-            veryLow: '#ef4444',
-            low: '#f59e0b',
+            veryLow: '#1d4ed8',
+            low: '#3b82f6',
             inRange: '#10b981',
-            high: '#f59e0b',
+            high: '#eab308',
             veryHigh: '#ef4444',
             accent: '#e94560',
             info: '#3b82f6'
         };
         
+        // Initialize date inputs with data range
+        function initDateControls() {
+            if (allReadings.length === 0) return;
+            
+            const dates = allReadings.map(r => r.date.split('T')[0]);
+            const minDate = dates[0];
+            const maxDate = dates[dates.length - 1];
+            
+            document.getElementById('startDate').min = minDate;
+            document.getElementById('startDate').max = maxDate;
+            document.getElementById('endDate').min = minDate;
+            document.getElementById('endDate').max = maxDate;
+            
+            // Set default to current filter
+            const endDate = new Date(maxDate);
+            const startDate = new Date(endDate);
+            startDate.setDate(startDate.getDate() - currentDays + 1);
+            
+            document.getElementById('endDate').value = maxDate;
+            document.getElementById('startDate').value = startDate.toISOString().split('T')[0];
+            
+            // Highlight active button
+            updateActiveButton(currentDays);
+        }
+        
+        function updateActiveButton(days) {
+            document.querySelectorAll('.date-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.days) === days);
+            });
+        }
+        
+        function setDateRange(days) {
+            currentDays = days;
+            customStartDate = null;
+            customEndDate = null;
+            updateActiveButton(days);
+            
+            const filteredData = filterReadingsByDays(days);
+            updateAllCharts(filteredData);
+            
+            // Update date inputs to reflect selection
+            if (filteredData.length > 0) {
+                const dates = filteredData.map(r => r.date.split('T')[0]);
+                document.getElementById('startDate').value = dates[0];
+                document.getElementById('endDate').value = dates[dates.length - 1];
+            }
+        }
+        
+        function applyCustomDateRange() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            
+            if (!start || !end) return;
+            
+            customStartDate = start;
+            customEndDate = end;
+            updateActiveButton(-1); // Deselect all preset buttons
+            
+            const filteredData = filterReadingsByDateRange(start, end);
+            updateAllCharts(filteredData);
+        }
+        
+        function filterReadingsByDays(days) {
+            if (days === 0 || !days) return allReadings; // All data
+            
+            const now = new Date();
+            const cutoff = new Date(now);
+            cutoff.setDate(cutoff.getDate() - days);
+            
+            return allReadings.filter(r => new Date(r.date) >= cutoff);
+        }
+        
+        function filterReadingsByDateRange(start, end) {
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            endDate.setHours(23, 59, 59, 999);
+            
+            return allReadings.filter(r => {
+                const d = new Date(r.date);
+                return d >= startDate && d <= endDate;
+            });
+        }
+        
+        function convertGlucose(val) {
+            return isMMOL ? Math.round(val / 18.0 * 10) / 10 : val;
+        }
+        
+        // Calculate all statistics from filtered data
+        function calcStats(readings) {
+            if (readings.length === 0) {
+                return {
+                    tir: { very_low: 0, low: 0, in_range: 0, high: 0, very_high: 0 },
+                    mean: 0, gmi: 0, cv: 0, count: 0
+                };
+            }
+            
+            const values = readings.map(r => r.sgv);
+            const mean = values.reduce((a, b) => a + b, 0) / values.length;
+            const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
+            const std = Math.sqrt(variance);
+            const cv = mean > 0 ? (std / mean) * 100 : 0;
+            const gmi = 3.31 + (0.02392 * mean);
+            
+            const t = thresholds;
+            const veryLow = values.filter(v => v < t.urgentLow).length;
+            const low = values.filter(v => v >= t.urgentLow && v < t.targetLow).length;
+            const inRange = values.filter(v => v >= t.targetLow && v <= t.targetHigh).length;
+            const high = values.filter(v => v > t.targetHigh && v <= t.urgentHigh).length;
+            const veryHigh = values.filter(v => v > t.urgentHigh).length;
+            const total = values.length;
+            
+            return {
+                tir: {
+                    very_low: (veryLow / total * 100).toFixed(1),
+                    low: (low / total * 100).toFixed(1),
+                    in_range: (inRange / total * 100).toFixed(1),
+                    high: (high / total * 100).toFixed(1),
+                    very_high: (veryHigh / total * 100).toFixed(1)
+                },
+                mean: convertGlucose(Math.round(mean)),
+                gmi: gmi.toFixed(1),
+                cv: cv.toFixed(1),
+                cvStatus: cv < 36 ? 'stable' : 'variable',
+                count: total
+            };
+        }
+        
+        // Build modal day data
+        function buildModalDay(readings) {
+            const hourly = {};
+            for (let h = 0; h < 24; h++) hourly[h] = [];
+            
+            readings.forEach(r => {
+                const d = new Date(r.date);
+                hourly[d.getHours()].push(r.sgv);
+            });
+            
+            const result = [];
+            for (let h = 0; h < 24; h++) {
+                const vals = hourly[h].sort((a, b) => a - b);
+                if (vals.length > 0) {
+                    const n = vals.length;
+                    result.push({
+                        hour: h,
+                        mean: convertGlucose(vals.reduce((a, b) => a + b, 0) / n),
+                        median: convertGlucose(vals[Math.floor(n / 2)]),
+                        p10: convertGlucose(vals[Math.floor(n * 0.1)] || vals[0]),
+                        p25: convertGlucose(vals[Math.floor(n * 0.25)] || vals[0]),
+                        p75: convertGlucose(vals[Math.floor(n * 0.75)] || vals[n - 1]),
+                        p90: convertGlucose(vals[Math.floor(n * 0.9)] || vals[n - 1])
+                    });
+                } else {
+                    result.push({ hour: h, mean: null, median: null, p10: null, p25: null, p75: null, p90: null });
+                }
+            }
+            return result;
+        }
+        
+        // Build daily stats
+        function buildDailyStats(readings) {
+            const daily = {};
+            readings.forEach(r => {
+                const dateKey = r.date.split('T')[0];
+                if (!daily[dateKey]) daily[dateKey] = [];
+                daily[dateKey].push(r.sgv);
+            });
+            
+            const t = thresholds;
+            return Object.keys(daily).sort().map(date => {
+                const vals = daily[date];
+                const inR = vals.filter(v => v >= t.targetLow && v <= t.targetHigh).length;
+                return {
+                    date: date,
+                    mean: convertGlucose(Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)),
+                    tir: (inR / vals.length * 100).toFixed(1),
+                    readings: vals.length
+                };
+            });
+        }
+        
+        // Build day of week stats
+        function buildDowStats(readings) {
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dow = {};
+            for (let d = 0; d < 7; d++) dow[d] = [];
+            
+            readings.forEach(r => {
+                const d = new Date(r.date);
+                dow[d.getDay()].push(r.sgv);
+            });
+            
+            const t = thresholds;
+            // Reorder to Monday-Sunday
+            const ordered = [1, 2, 3, 4, 5, 6, 0];
+            return ordered.map(dayIdx => {
+                const vals = dow[dayIdx];
+                if (vals.length === 0) return { day: dayNames[dayIdx], mean: 0, tir: 0, readings: 0 };
+                const inR = vals.filter(v => v >= t.targetLow && v <= t.targetHigh).length;
+                return {
+                    day: dayNames[dayIdx],
+                    mean: convertGlucose(Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)),
+                    tir: (inR / vals.length * 100).toFixed(1),
+                    readings: vals.length
+                };
+            });
+        }
+        
+        // Build histogram data
+        function buildHistogram(readings) {
+            const binSize = isMMOL ? 1 : 10;
+            const minBin = isMMOL ? 2 : 40;
+            const maxBin = isMMOL ? 20 : 350;
+            
+            const bins = {};
+            readings.forEach(r => {
+                let v = isMMOL ? r.sgv / 18.0 : r.sgv;
+                let binStart = Math.floor(v / binSize) * binSize;
+                binStart = Math.max(minBin, Math.min(maxBin, binStart));
+                bins[binStart] = (bins[binStart] || 0) + 1;
+            });
+            
+            const result = [];
+            for (let b = minBin; b <= maxBin; b += binSize) {
+                result.push({ bin: b, count: bins[b] || 0 });
+            }
+            return result;
+        }
+        
+        // Build weekly stats
+        function buildWeeklyStats(readings) {
+            const weekly = {};
+            readings.forEach(r => {
+                const d = new Date(r.date);
+                const dayOfWeek = d.getDay();
+                const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const weekStart = new Date(d.setDate(diff)).toISOString().split('T')[0];
+                if (!weekly[weekStart]) weekly[weekStart] = [];
+                weekly[weekStart].push(r.sgv);
+            });
+            
+            const t = thresholds;
+            return Object.keys(weekly).sort().map(week => {
+                const vals = weekly[week];
+                const inR = vals.filter(v => v >= t.targetLow && v <= t.targetHigh).length;
+                return {
+                    week: week,
+                    mean: convertGlucose(Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)),
+                    tir: (inR / vals.length * 100).toFixed(1),
+                    readings: vals.length
+                };
+            });
+        }
+        
+        // Build heatmap data
+        function buildHeatmap(readings) {
+            const data = {};
+            for (let d = 0; d < 7; d++) {
+                data[d] = {};
+                for (let h = 0; h < 24; h++) data[d][h] = [];
+            }
+            
+            readings.forEach(r => {
+                const dt = new Date(r.date);
+                // Convert Sunday=0 to Monday=0 format
+                const dayIdx = (dt.getDay() + 6) %% 7;
+                data[dayIdx][dt.getHours()].push(r.sgv);
+            });
+            
+            const t = thresholds;
+            const result = [];
+            for (let d = 0; d < 7; d++) {
+                const row = [];
+                for (let h = 0; h < 24; h++) {
+                    const vals = data[d][h];
+                    if (vals.length > 0) {
+                        const inR = vals.filter(v => v >= t.targetLow && v <= t.targetHigh).length;
+                        row.push((inR / vals.length * 100).toFixed(1));
+                    } else {
+                        row.push(null);
+                    }
+                }
+                result.push(row);
+            }
+            return result;
+        }
+        
+        // Update subtitle with current filter info
+        function updateSubtitle(readings) {
+            if (readings.length === 0) {
+                document.getElementById('reportSubtitle').textContent = 'No data for selected period';
+                return;
+            }
+            
+            const dates = readings.map(r => r.date.split('T')[0]);
+            const firstDate = dates[0];
+            const lastDate = dates[dates.length - 1];
+            const daysDiff = Math.ceil((new Date(lastDate) - new Date(firstDate)) / (1000 * 60 * 60 * 24)) + 1;
+            
+            document.getElementById('reportSubtitle').textContent = 
+                `${firstDate} to ${lastDate} (${daysDiff} days) • ${readings.length.toLocaleString()} readings`;
+        }
+        
+        // Update stat cards
+        function updateStatCards(stats) {
+            document.querySelector('.stat-card.tir .value').textContent = stats.tir.in_range + '%%';
+            document.querySelector('.stat-card.gmi .value').textContent = stats.gmi + '%%';
+            document.querySelector('.stat-card.cv .value').textContent = stats.cv + '%%';
+            document.querySelector('.stat-card.cv .label').textContent = 'CV (' + stats.cvStatus + ')';
+            document.querySelector('.stat-card:last-child .value').textContent = stats.mean;
+            
+            // Update TIR breakdown
+            const breakdown = document.querySelectorAll('.tir-item');
+            if (breakdown.length >= 5) {
+                breakdown[0].innerHTML = `<span class="tir-dot very-low"></span> Very Low (<${convertGlucose(thresholds.urgentLow)}): ${stats.tir.very_low}%%`;
+                breakdown[1].innerHTML = `<span class="tir-dot low"></span> Low (${convertGlucose(thresholds.urgentLow)}-${convertGlucose(thresholds.targetLow - 1)}): ${stats.tir.low}%%`;
+                breakdown[2].innerHTML = `<span class="tir-dot in-range"></span> In Range (${convertGlucose(thresholds.targetLow)}-${convertGlucose(thresholds.targetHigh)}): ${stats.tir.in_range}%%`;
+                breakdown[3].innerHTML = `<span class="tir-dot high"></span> High (${convertGlucose(thresholds.targetHigh + 1)}-${convertGlucose(thresholds.urgentHigh)}): ${stats.tir.high}%%`;
+                breakdown[4].innerHTML = `<span class="tir-dot very-high"></span> Very High (>${convertGlucose(thresholds.urgentHigh)}): ${stats.tir.very_high}%%`;
+            }
+        }
+        
+        // Update all charts with filtered data
+        function updateAllCharts(readings) {
+            const stats = calcStats(readings);
+            const modalData = buildModalDay(readings);
+            const dailyData = buildDailyStats(readings);
+            const dowData = buildDowStats(readings);
+            const histData = buildHistogram(readings);
+            const weeklyData = buildWeeklyStats(readings);
+            const heatmapData = buildHeatmap(readings);
+            
+            updateSubtitle(readings);
+            updateStatCards(stats);
+            
+            // Update TIR pie
+            tirChart.data.datasets[0].data = [
+                parseFloat(stats.tir.very_low), parseFloat(stats.tir.low), 
+                parseFloat(stats.tir.in_range), parseFloat(stats.tir.high), parseFloat(stats.tir.very_high)
+            ];
+            tirChart.update();
+            
+            // Update modal day
+            modalChart.data.labels = modalData.map(d => d.hour + ':00');
+            modalChart.data.datasets[0].data = modalData.map(d => d.p90);
+            modalChart.data.datasets[1].data = modalData.map(d => d.p10);
+            modalChart.data.datasets[2].data = modalData.map(d => d.p75);
+            modalChart.data.datasets[3].data = modalData.map(d => d.p25);
+            modalChart.data.datasets[4].data = modalData.map(d => d.median);
+            modalChart.update();
+            
+            // Update daily trend
+            dailyChart.data.labels = dailyData.map(d => d.date);
+            dailyChart.data.datasets[0].data = dailyData.map(d => d.mean);
+            dailyChart.data.datasets[1].data = dailyData.map(d => parseFloat(d.tir));
+            dailyChart.update();
+            
+            // Update day of week
+            dowChart.data.labels = dowData.map(d => d.day);
+            dowChart.data.datasets[0].data = dowData.map(d => d.mean);
+            dowChart.data.datasets[1].data = dowData.map(d => parseFloat(d.tir));
+            dowChart.data.datasets[1].backgroundColor = dowData.map(d => 
+                parseFloat(d.tir) >= 70 ? colors.inRange : parseFloat(d.tir) >= 50 ? colors.low : colors.veryLow
+            );
+            dowChart.update();
+            
+            // Update histogram
+            histChart.data.labels = histData.map(d => d.bin);
+            histChart.data.datasets[0].data = histData.map(d => d.count);
+            histChart.data.datasets[0].backgroundColor = histData.map(d => {
+                const v = isMMOL ? d.bin * 18 : d.bin;
+                if (v < thresholds.urgentLow) return colors.veryLow;
+                if (v < thresholds.targetLow) return colors.low;
+                if (v <= thresholds.targetHigh) return colors.inRange;
+                if (v <= thresholds.urgentHigh) return colors.high;
+                return colors.veryHigh;
+            });
+            histChart.update();
+            
+            // Update weekly
+            weeklyChart.data.labels = weeklyData.map(d => 'Week of ' + d.week.slice(5));
+            weeklyChart.data.datasets[0].data = weeklyData.map(d => d.mean);
+            weeklyChart.data.datasets[1].data = weeklyData.map(d => parseFloat(d.tir));
+            weeklyChart.data.datasets[1].backgroundColor = weeklyData.map(d => 
+                parseFloat(d.tir) >= 70 ? colors.inRange : parseFloat(d.tir) >= 50 ? colors.low : colors.veryLow
+            );
+            weeklyChart.update();
+            
+            // Update heatmap
+            updateHeatmap(heatmapData);
+        }
+        
+        function updateHeatmap(heatmapTir) {
+            const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const fullDayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const heatmapGrid = document.getElementById('heatmapGrid');
+            heatmapGrid.innerHTML = '';
+            
+            // Header row
+            const headerCell = document.createElement('div');
+            headerCell.className = 'heatmap-cell heatmap-header';
+            heatmapGrid.appendChild(headerCell);
+            
+            for (let h = 0; h < 24; h++) {
+                const cell = document.createElement('div');
+                cell.className = 'heatmap-cell heatmap-header';
+                cell.textContent = h;
+                heatmapGrid.appendChild(cell);
+            }
+            
+            // Data rows
+            for (let d = 0; d < 7; d++) {
+                const labelCell = document.createElement('div');
+                labelCell.className = 'heatmap-cell heatmap-label';
+                labelCell.textContent = dayNames[d];
+                heatmapGrid.appendChild(labelCell);
+                
+                for (let h = 0; h < 24; h++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell';
+                    const tir = heatmapTir[d][h];
+                    
+                    // Create styled tooltip
+                    const tooltip = document.createElement('span');
+                    tooltip.className = 'tooltip';
+                    
+                    const hourLabel = h.toString().padStart(2, '0') + ':00';
+                    
+                    if (tir === null) {
+                        cell.style.background = 'rgba(255,255,255,0.05)';
+                        tooltip.innerHTML = `<strong>${fullDayNames[d]}</strong> ${hourLabel}<br>No data`;
+                    } else {
+                        const tirVal = parseFloat(tir);
+                        let color;
+                        if (tirVal >= 80) {
+                            color = `rgba(16, 185, 129, ${0.3 + (tirVal - 80) / 100})`;
+                        } else if (tirVal >= 60) {
+                            color = `rgba(234, 179, 8, ${0.5 + (tirVal - 60) / 100})`;
+                        } else {
+                            color = `rgba(239, 68, 68, ${0.4 + (60 - tirVal) / 150})`;
+                        }
+                        cell.style.background = color;
+                        
+                        const status = tirVal >= 70 ? '✓ Good' : tirVal >= 50 ? '⚠ Fair' : '✗ Needs work';
+                        tooltip.innerHTML = `<strong>${fullDayNames[d]}</strong> ${hourLabel}<br>TIR: ${Math.round(tirVal)}%% ${status}`;
+                    }
+                    
+                    cell.appendChild(tooltip);
+                    heatmapGrid.appendChild(cell);
+                }
+            }
+        }
+        
+        // Initial data (pre-filtered by Python for performance)
+        const modalDayData = %(modal_day_json)s;
+        const dailyStats = %(daily_stats_json)s;
+        const dowStats = %(dow_stats_json)s;
+        const histogramData = %(histogram_json)s;
+        const heatmapTir = %(heatmap_json)s;
+        const weeklyStats = %(weekly_stats_json)s;
+        const tirData = %(tir_data_json)s;
+        
         // Time in Range Pie Chart
-        new Chart(document.getElementById('tirPieChart'), {
+        tirChart = new Chart(document.getElementById('tirPieChart'), {
             type: 'doughnut',
             data: {
                 labels: ['Very Low', 'Low', 'In Range', 'High', 'Very High'],
@@ -1854,7 +2471,7 @@ def generate_html_report(days=90, output_path=None):
         const modalP25 = modalDayData.map(d => d.p25);
         const modalP75 = modalDayData.map(d => d.p75);
         
-        new Chart(document.getElementById('modalDayChart'), {
+        modalChart = new Chart(document.getElementById('modalDayChart'), {
             type: 'line',
             data: {
                 labels: modalHours,
@@ -1963,7 +2580,7 @@ def generate_html_report(days=90, output_path=None):
         });
         
         // Daily Trend Chart
-        new Chart(document.getElementById('dailyTrendChart'), {
+        dailyChart = new Chart(document.getElementById('dailyTrendChart'), {
             type: 'bar',
             data: {
                 labels: dailyStats.map(d => d.date.slice(5)),
@@ -2019,7 +2636,7 @@ def generate_html_report(days=90, output_path=None):
         });
         
         // Day of Week Chart
-        new Chart(document.getElementById('dowChart'), {
+        dowChart = new Chart(document.getElementById('dowChart'), {
             type: 'bar',
             data: {
                 labels: dowStats.map(d => d.day.slice(0, 3)),
@@ -2065,7 +2682,7 @@ def generate_html_report(days=90, output_path=None):
         });
         
         // Histogram
-        new Chart(document.getElementById('histogramChart'), {
+        histChart = new Chart(document.getElementById('histogramChart'), {
             type: 'bar',
             data: {
                 labels: histogramData.map(d => d.bin),
@@ -2095,57 +2712,11 @@ def generate_html_report(days=90, output_path=None):
             }
         });
         
-        // Heatmap
-        const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        const heatmapGrid = document.getElementById('heatmapGrid');
-        
-        // Header row
-        const headerCell = document.createElement('div');
-        headerCell.className = 'heatmap-cell heatmap-header';
-        heatmapGrid.appendChild(headerCell);
-        
-        for (let h = 0; h < 24; h++) {
-            const cell = document.createElement('div');
-            cell.className = 'heatmap-cell heatmap-header';
-            cell.textContent = h;
-            heatmapGrid.appendChild(cell);
-        }
-        
-        // Data rows
-        for (let d = 0; d < 7; d++) {
-            const labelCell = document.createElement('div');
-            labelCell.className = 'heatmap-cell heatmap-label';
-            labelCell.textContent = dayNames[d];
-            heatmapGrid.appendChild(labelCell);
-            
-            for (let h = 0; h < 24; h++) {
-                const cell = document.createElement('div');
-                cell.className = 'heatmap-cell';
-                const tir = heatmapTir[d][h];
-                
-                if (tir === null) {
-                    cell.style.background = 'rgba(255,255,255,0.05)';
-                    cell.title = `${dayNames[d]} ${h}:00 - No data`;
-                } else {
-                    // Color scale: red (0%%) -> yellow (50%%) -> green (100%%)
-                    let color;
-                    if (tir >= 80) {
-                        color = `rgba(16, 185, 129, ${0.3 + (tir - 80) / 100})`; // Green
-                    } else if (tir >= 60) {
-                        color = `rgba(245, 158, 11, ${0.5 + (tir - 60) / 100})`; // Yellow/Orange
-                    } else {
-                        color = `rgba(239, 68, 68, ${0.4 + (60 - tir) / 150})`; // Red
-                    }
-                    cell.style.background = color;
-                    cell.title = `${dayNames[d]} ${h}:00 - ${tir.toFixed(0)}%% TIR`;
-                }
-                
-                heatmapGrid.appendChild(cell);
-            }
-        }
+        // Heatmap - use the same function for initial render
+        updateHeatmap(heatmapTir);
         
         // Weekly Chart
-        new Chart(document.getElementById('weeklyChart'), {
+        weeklyChart = new Chart(document.getElementById('weeklyChart'), {
             type: 'bar',
             data: {
                 labels: weeklyStats.map(d => 'Week of ' + d.week.slice(5)),
@@ -2196,6 +2767,9 @@ def generate_html_report(days=90, output_path=None):
                 }
             }
         });
+        
+        // Initialize date controls
+        initDateControls();
     </script>
 </body>
 </html>
@@ -2240,7 +2814,10 @@ def generate_html_report(days=90, output_path=None):
         "tir_data_json": json.dumps(tir_data),
         "chart_min": chart_min,
         "chart_max": chart_max,
-        "generated_date": datetime.now().strftime("%Y-%m-%d %H:%M")
+        "generated_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "all_readings_json": json.dumps(all_readings_data),
+        "is_mmol_js": "true" if is_mmol else "false",
+        "initial_days": days
     }
     
     # Determine output path
