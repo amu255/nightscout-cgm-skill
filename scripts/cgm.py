@@ -4500,26 +4500,34 @@ def generate_agp_report(days=14, output_path=None):
         except (ValueError, TypeError):
             pass
     
+    # Helper function to safely calculate percentile
+    def safe_percentile(sorted_values, percentile):
+        """Calculate percentile with bounds checking to prevent index errors."""
+        n = len(sorted_values)
+        if n == 0:
+            return None
+        index = min(n - 1, max(0, int(n * percentile)))
+        return convert_glucose(sorted_values[index])
+    
     agp_modal_day = []
     for hour in range(24):
         values = hourly_all.get(hour, [])
         if values:
             sorted_vals = sorted(values)
-            n = len(sorted_vals)
             agp_modal_day.append({
                 "hour": hour,
-                "p5": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.05)))]),
-                "p25": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.25)))]),
-                "p50": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.50)))]),  # median
-                "p75": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.75)))]),
-                "p95": convert_glucose(sorted_vals[min(n - 1, max(0, int(n * 0.95)))])
+                "p5": safe_percentile(sorted_vals, 0.05),
+                "p25": safe_percentile(sorted_vals, 0.25),
+                "p50": safe_percentile(sorted_vals, 0.50),  # median
+                "p75": safe_percentile(sorted_vals, 0.75),
+                "p95": safe_percentile(sorted_vals, 0.95)
             })
         else:
             agp_modal_day.append({
                 "hour": hour, "p5": None, "p25": None, "p50": None, "p75": None, "p95": None
             })
     
-    # Daily profiles for the last 14 days
+    # Daily profiles for the specified period
     daily_profiles = defaultdict(lambda: defaultdict(list))
     for sgv, _, ds, _ in rows:
         try:
@@ -4529,8 +4537,8 @@ def generate_agp_report(days=14, output_path=None):
         except (ValueError, TypeError):
             pass
     
-    # Get the last 14 days sorted
-    all_dates = sorted(daily_profiles.keys())[-14:]
+    # Get dates for daily profiles (limited to the number of days requested)
+    all_dates = sorted(daily_profiles.keys())[-days:]
     
     daily_profile_data = []
     for date_str in all_dates:
@@ -4881,7 +4889,7 @@ def generate_agp_report(days=14, output_path=None):
         
         <!-- Daily Glucose Profiles -->
         <div class="agp-section">
-            <div class="section-title">Daily Glucose Profiles (Last 14 Days)</div>
+            <div class="section-title">Daily Glucose Profiles (Last ''' + str(len(all_dates)) + ''' Days)</div>
             <div class="daily-profiles" id="dailyProfiles"></div>
         </div>
     </div>
