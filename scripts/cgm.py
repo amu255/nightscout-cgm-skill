@@ -4429,6 +4429,662 @@ def generate_html_report(days=90, output_path=None):
     }
 
 
+def generate_agp_report(days=14, output_path=None):
+    """
+    Generate an Ambulatory Glucose Profile (AGP) report.
+    This matches the standard clinical AGP format used by Dexcom, Libre, and diabetes clinics.
+    
+    Args:
+        days: Number of days to include in the report (default: 14, standard AGP period)
+        output_path: Path to save the HTML file (default: nightscout_agp_report.html in skill dir)
+    
+    Returns:
+        Path to the generated HTML file, or error dict
+    """
+    if not ensure_data(days):
+        return {"error": "Could not fetch data from Nightscout. Check your NIGHTSCOUT_URL."}
+    
+    conn = sqlite3.connect(DB_PATH)
+    
+    # Fetch readings for the specified period
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+    
+    rows = conn.execute(
+        "SELECT sgv, date_ms, date_string, direction FROM readings WHERE sgv > 0 AND date_ms >= ? ORDER BY date_ms",
+        (cutoff_ms,)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        return {"error": "No data found for the specified period."}
+    
+    t = get_thresholds()
+    unit = get_unit_label()
+    is_mmol = use_mmol()
+    
+    # =========================================================================
+    # AGP Statistics Calculation
+    # =========================================================================
+    
+    all_values = [r[0] for r in rows]
+    
+    # Basic statistics
+    raw_mean = sum(all_values) / len(all_values)
+    raw_std = (sum((x - raw_mean) ** 2 for x in all_values) / len(all_values)) ** 0.5
+    gmi = round(3.31 + (0.02392 * raw_mean), 1)
+    cv = round((raw_std / raw_mean) * 100, 1) if raw_mean else 0
+    
+    # Time in range calculation (AGP standard)
+    very_low = sum(1 for v in all_values if v < t["urgent_low"])
+    low = sum(1 for v in all_values if t["urgent_low"] <= v < t["target_low"])
+    in_range = sum(1 for v in all_values if t["target_low"] <= v <= t["target_high"])
+    high = sum(1 for v in all_values if t["target_high"] < v <= t["urgent_high"])
+    very_high = sum(1 for v in all_values if v > t["urgent_high"])
+    total = len(all_values)
+    
+    tir_data = {
+        "very_low": round(very_low / total * 100, 1),
+        "low": round(low / total * 100, 1),
+        "in_range": round(in_range / total * 100, 1),
+        "high": round(high / total * 100, 1),
+        "very_high": round(very_high / total * 100, 1)
+    }
+    
+    # AGP Modal Day - calculate percentiles (5, 25, 50, 75, 95) for each hour
+    hourly_all = defaultdict(list)
+    for sgv, _, ds, _ in rows:
+        try:
+            dt = datetime.fromisoformat(ds.replace("Z", "+00:00"))
+            hourly_all[dt.hour].append(sgv)
+        except (ValueError, TypeError):
+            pass
+    
+    agp_modal_day = []
+    for hour in range(24):
+        values = hourly_all.get(hour, [])
+        if values:
+            sorted_vals = sorted(values)
+            n = len(sorted_vals)
+            agp_modal_day.append({
+                "hour": hour,
+                "p5": convert_glucose(sorted_vals[max(0, int(n * 0.05))]),
+                "p25": convert_glucose(sorted_vals[max(0, int(n * 0.25))]),
+                "p50": convert_glucose(sorted_vals[max(0, int(n * 0.50))]),  # median
+                "p75": convert_glucose(sorted_vals[max(0, int(n * 0.75))]),
+                "p95": convert_glucose(sorted_vals[max(0, min(n - 1, int(n * 0.95)))])
+            })
+        else:
+            agp_modal_day.append({
+                "hour": hour, "p5": None, "p25": None, "p50": None, "p75": None, "p95": None
+            })
+    
+    # Daily profiles for the last 14 days
+    daily_profiles = defaultdict(lambda: defaultdict(list))
+    for sgv, _, ds, _ in rows:
+        try:
+            dt = datetime.fromisoformat(ds.replace("Z", "+00:00"))
+            date_key = dt.strftime("%Y-%m-%d")
+            daily_profiles[date_key][dt.hour].append(sgv)
+        except (ValueError, TypeError):
+            pass
+    
+    # Get the last 14 days sorted
+    all_dates = sorted(daily_profiles.keys())[-14:]
+    
+    daily_profile_data = []
+    for date_str in all_dates:
+        hourly_data = []
+        for hour in range(24):
+            values = daily_profiles[date_str].get(hour, [])
+            if values:
+                hourly_data.append({
+                    "hour": hour,
+                    "mean": convert_glucose(round(sum(values) / len(values), 1)),
+                    "count": len(values)
+                })
+            else:
+                hourly_data.append({"hour": hour, "mean": None, "count": 0})
+        daily_profile_data.append({
+            "date": date_str,
+            "data": hourly_data
+        })
+    
+    # Date range
+    first_date = rows[0][2][:10] if rows[0][2] else "unknown"
+    last_date = rows[-1][2][:10] if rows[-1][2] else "unknown"
+    
+    # Number of days with data
+    unique_dates = len(set(datetime.fromisoformat(r[2].replace("Z", "+00:00")).strftime("%Y-%m-%d") for r in rows if r[2]))
+    
+    # =========================================================================
+    # AGP HTML Template
+    # =========================================================================
+    
+    html_template = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambulatory Glucose Profile (AGP) Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white !important; }
+            .container { max-width: 100% !important; padding: 10px !important; }
+            .agp-section { page-break-inside: avoid; }
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.4;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+        }
+        
+        .agp-header {
+            text-align: center;
+            border-bottom: 3px solid #2c5aa0;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .agp-header h1 {
+            font-size: 28px;
+            color: #2c5aa0;
+            margin-bottom: 5px;
+        }
+        
+        .agp-header .subtitle {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .date-range {
+            text-align: center;
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .agp-section {
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c5aa0;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #2c5aa0;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .stat-unit {
+            font-size: 14px;
+            color: #666;
+            margin-left: 4px;
+        }
+        
+        .tir-bar {
+            display: flex;
+            height: 40px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .tir-segment {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .tir-segment:hover {
+            opacity: 0.8;
+        }
+        
+        .tir-very-low { background: #1d4ed8; }
+        .tir-low { background: #3b82f6; }
+        .tir-in-range { background: #10b981; }
+        .tir-high { background: #f59e0b; }
+        .tir-very-high { background: #ef4444; }
+        
+        .tir-legend {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            font-size: 11px;
+        }
+        
+        .tir-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .tir-legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        
+        .daily-profiles {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .daily-profile-chart {
+            height: 150px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        
+        .daily-profile-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+        
+        .agp-targets {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        
+        .agp-targets strong {
+            color: #333;
+        }
+        
+        .print-btn {
+            background: #2c5aa0;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 20px auto;
+            display: block;
+        }
+        
+        .print-btn:hover {
+            background: #1e3d6f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="agp-header">
+            <h1>Ambulatory Glucose Profile (AGP)</h1>
+            <div class="subtitle">Report Generated: ''' + datetime.now().strftime("%B %d, %Y") + '''</div>
+        </div>
+        
+        <div class="date-range">
+            Report Period: ''' + first_date + ''' to ''' + last_date + ''' (''' + str(unique_dates) + ''' days with data)
+        </div>
+        
+        <button class="print-btn no-print" onclick="window.print()">Print Report</button>
+        
+        <!-- Glucose Statistics -->
+        <div class="agp-section">
+            <div class="section-title">Glucose Statistics</div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Average Glucose</div>
+                    <div class="stat-value">''' + str(convert_glucose(round(raw_mean, 1))) + '''<span class="stat-unit">''' + unit + '''</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">GMI (estimated A1C)</div>
+                    <div class="stat-value">''' + str(gmi) + '''<span class="stat-unit">%</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Glucose Variability (CV)</div>
+                    <div class="stat-value">''' + str(cv) + '''<span class="stat-unit">%</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Readings</div>
+                    <div class="stat-value">''' + str(total) + '''</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Time in Ranges -->
+        <div class="agp-section">
+            <div class="section-title">Time in Ranges</div>
+            <div class="tir-bar">
+                <div class="tir-segment tir-very-low" style="width: ''' + str(tir_data["very_low"]) + '''%">
+                    ''' + (str(tir_data["very_low"]) + '%' if tir_data["very_low"] >= 5 else '') + '''
+                </div>
+                <div class="tir-segment tir-low" style="width: ''' + str(tir_data["low"]) + '''%">
+                    ''' + (str(tir_data["low"]) + '%' if tir_data["low"] >= 5 else '') + '''
+                </div>
+                <div class="tir-segment tir-in-range" style="width: ''' + str(tir_data["in_range"]) + '''%">
+                    ''' + str(tir_data["in_range"]) + '''%
+                </div>
+                <div class="tir-segment tir-high" style="width: ''' + str(tir_data["high"]) + '''%">
+                    ''' + (str(tir_data["high"]) + '%' if tir_data["high"] >= 5 else '') + '''
+                </div>
+                <div class="tir-segment tir-very-high" style="width: ''' + str(tir_data["very_high"]) + '''%">
+                    ''' + (str(tir_data["very_high"]) + '%' if tir_data["very_high"] >= 5 else '') + '''
+                </div>
+            </div>
+            <div class="tir-legend">
+                <div class="tir-legend-item">
+                    <div class="tir-legend-color tir-very-low"></div>
+                    <span>Very Low (&lt;''' + str(convert_glucose(t["urgent_low"])) + '''): ''' + str(tir_data["very_low"]) + '''%</span>
+                </div>
+                <div class="tir-legend-item">
+                    <div class="tir-legend-color tir-low"></div>
+                    <span>Low (''' + str(convert_glucose(t["urgent_low"])) + '''-''' + str(convert_glucose(t["target_low"])) + '''): ''' + str(tir_data["low"]) + '''%</span>
+                </div>
+                <div class="tir-legend-item">
+                    <div class="tir-legend-color tir-in-range"></div>
+                    <span>In Range (''' + str(convert_glucose(t["target_low"])) + '''-''' + str(convert_glucose(t["target_high"])) + '''): ''' + str(tir_data["in_range"]) + '''%</span>
+                </div>
+                <div class="tir-legend-item">
+                    <div class="tir-legend-color tir-high"></div>
+                    <span>High (''' + str(convert_glucose(t["target_high"])) + '''-''' + str(convert_glucose(t["urgent_high"])) + '''): ''' + str(tir_data["high"]) + '''%</span>
+                </div>
+                <div class="tir-legend-item">
+                    <div class="tir-legend-color tir-very-high"></div>
+                    <span>Very High (&gt;''' + str(convert_glucose(t["urgent_high"])) + '''): ''' + str(tir_data["very_high"]) + '''%</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- AGP Modal Day -->
+        <div class="agp-section">
+            <div class="section-title">Ambulatory Glucose Profile</div>
+            <div class="agp-targets">
+                <strong>Target Range:</strong> ''' + str(convert_glucose(t["target_low"])) + '''-''' + str(convert_glucose(t["target_high"])) + ''' ''' + unit + ''' | 
+                <strong>AGP Goal:</strong> Time in Range &gt;70%, Time Below &lt;4%, CV &lt;36%
+            </div>
+            <div class="chart-container">
+                <canvas id="agpChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Daily Glucose Profiles -->
+        <div class="agp-section">
+            <div class="section-title">Daily Glucose Profiles (Last 14 Days)</div>
+            <div class="daily-profiles" id="dailyProfiles"></div>
+        </div>
+    </div>
+    
+    <script>
+        const unit = "''' + unit + '''";
+        const targetLow = ''' + str(convert_glucose(t["target_low"])) + ''';
+        const targetHigh = ''' + str(convert_glucose(t["target_high"])) + ''';
+        const urgentLow = ''' + str(convert_glucose(t["urgent_low"])) + ''';
+        const urgentHigh = ''' + str(convert_glucose(t["urgent_high"])) + ''';
+        
+        // AGP Modal Day Data
+        const agpData = ''' + json.dumps(agp_modal_day) + ''';
+        
+        // Daily profiles data
+        const dailyProfiles = ''' + json.dumps(daily_profile_data) + ''';
+        
+        // AGP Chart
+        const ctx = document.getElementById('agpChart').getContext('2d');
+        const agpChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array.from({length: 24}, (_, i) => i + ':00'),
+                datasets: [
+                    {
+                        label: '95th Percentile',
+                        data: agpData.map(d => d.p95),
+                        borderColor: 'rgba(44, 90, 160, 0.5)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: '+1'
+                    },
+                    {
+                        label: '75th Percentile',
+                        data: agpData.map(d => d.p75),
+                        borderColor: 'rgba(44, 90, 160, 0.7)',
+                        backgroundColor: 'rgba(44, 90, 160, 0.15)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: '+1'
+                    },
+                    {
+                        label: 'Median (50th)',
+                        data: agpData.map(d => d.p50),
+                        borderColor: 'rgba(44, 90, 160, 1)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 3,
+                        pointRadius: 0,
+                        fill: false
+                    },
+                    {
+                        label: '25th Percentile',
+                        data: agpData.map(d => d.p25),
+                        borderColor: 'rgba(44, 90, 160, 0.7)',
+                        backgroundColor: 'rgba(44, 90, 160, 0.15)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: '+1'
+                    },
+                    {
+                        label: '5th Percentile',
+                        data: agpData.map(d => d.p5),
+                        borderColor: 'rgba(44, 90, 160, 0.5)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: { size: 11 }
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time of Day',
+                            font: { size: 13, weight: 'bold' }
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Glucose (' + unit + ')',
+                            font: { size: 13, weight: 'bold' }
+                        },
+                        grid: { color: 'rgba(0,0,0,0.1)' }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
+            }
+        });
+        
+        // Add target range lines
+        agpChart.options.plugins.annotation = {
+            annotations: {
+                targetLowLine: {
+                    type: 'line',
+                    yMin: targetLow,
+                    yMax: targetLow,
+                    borderColor: 'rgba(16, 185, 129, 0.5)',
+                    borderWidth: 2,
+                    borderDash: [5, 5]
+                },
+                targetHighLine: {
+                    type: 'line',
+                    yMin: targetHigh,
+                    yMax: targetHigh,
+                    borderColor: 'rgba(16, 185, 129, 0.5)',
+                    borderWidth: 2,
+                    borderDash: [5, 5]
+                }
+            }
+        };
+        
+        // Daily Profiles
+        const dailyProfilesContainer = document.getElementById('dailyProfiles');
+        dailyProfiles.forEach((day, index) => {
+            const div = document.createElement('div');
+            div.className = 'daily-profile-chart';
+            
+            const title = document.createElement('div');
+            title.className = 'daily-profile-title';
+            const date = new Date(day.date + 'T00:00:00');
+            title.textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', weekday: 'short' });
+            div.appendChild(title);
+            
+            const canvas = document.createElement('canvas');
+            canvas.id = 'daily-' + index;
+            div.appendChild(canvas);
+            
+            dailyProfilesContainer.appendChild(div);
+            
+            // Create mini chart
+            const miniCtx = canvas.getContext('2d');
+            new Chart(miniCtx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => i),
+                    datasets: [{
+                        data: day.data.map(d => d.mean),
+                        borderColor: 'rgba(44, 90, 160, 1)',
+                        backgroundColor: 'transparent',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        spanGaps: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            display: false,
+                            min: urgentLow,
+                            max: urgentHigh
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>'''
+    
+    # Determine output path
+    if output_path is None:
+        output_path = SKILL_DIR / "nightscout_agp_report.html"
+    else:
+        output_path = Path(output_path)
+    
+    # Write the file
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_template)
+    
+    return {
+        "status": "success",
+        "report": str(output_path),
+        "days_analyzed": days,
+        "readings": len(rows),
+        "date_range": f"{first_date} to {last_date}",
+        "unique_days": unique_dates
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Nightscout CGM data fetcher and analyzer"
@@ -4610,6 +5266,23 @@ def main():
         help="Second period to compare (e.g., 'previous 7 days', 'last week', 'December')"
     )
 
+    # AGP command - generate Ambulatory Glucose Profile report
+    agp_parser = subparsers.add_parser(
+        "agp", help="Generate an Ambulatory Glucose Profile (AGP) report"
+    )
+    agp_parser.add_argument(
+        "--days", type=int, default=14,
+        help="Number of days to include in AGP report (default: 14)"
+    )
+    agp_parser.add_argument(
+        "--output", "-o", type=str,
+        help="Output file path (default: nightscout_agp_report.html in skill directory)"
+    )
+    agp_parser.add_argument(
+        "--open", action="store_true",
+        help="Open the report in default browser after generating"
+    )
+
     args = parser.parse_args()
 
     if args.command == "current":
@@ -4680,6 +5353,21 @@ def main():
                 webbrowser.open(f"file://{result['report']}")
     elif args.command == "compare":
         result = compare_periods(args.period1, args.period2)
+    elif args.command == "agp":
+        result = generate_agp_report(
+            days=args.days,
+            output_path=args.output
+        )
+        if "error" not in result:
+            print(f"AGP Report generated: {result['report']}")
+            print(f"  Period: {result['date_range']}")
+            print(f"  Readings: {result['readings']}")
+            print(f"  Days with data: {result['unique_days']}")
+            
+            # Open in browser if requested
+            if args.open:
+                import webbrowser
+                webbrowser.open(f"file://{result['report']}")
     else:
         parser.print_help()
         sys.exit(1)
