@@ -12,6 +12,7 @@ An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Conti
 ## Features
 
 - **Interactive HTML Reports** - Generate comprehensive local reports with charts (like [tally](https://github.com/davidfowl/tally) for diabetes)
+- **AGP Reports** - Generate clinical-standard Ambulatory Glucose Profile (AGP) reports for sharing with healthcare providers
 - **Current Glucose** - Real-time blood glucose with trend direction
 - **Trend Alerts** - Proactive pattern detection for recurring lows/highs (e.g., "Morning lows 8-10am")
 - **Period Comparison** - Compare different time periods side-by-side to track progress
@@ -22,6 +23,27 @@ An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Conti
 - **Terminal Visualizations** - Heatmaps, sparklines, and day charts
 - **Statistics** - Time-in-range, GMI (estimated A1C), glucose variability
 - **Privacy-First** - All data stored and analyzed locally on your machine
+
+## Ambulatory Glucose Profile (AGP) Reports
+
+Generate clinical-standard AGP reports that match the format used by Dexcom, Libre, and diabetes clinics:
+
+```bash
+python scripts/cgm.py agp --days 14 --open
+```
+
+![AGP Report Example](https://github.com/user-attachments/assets/5b3abce7-55ae-46a6-986f-dc0a76aa347e)
+
+### AGP Features
+
+- **Standard Percentile Bands** - Shows 5th, 25th, 50th (median), 75th, and 95th percentiles for each hour
+- **Glucose Statistics** - Average glucose, GMI (estimated A1C), CV (glucose variability), total readings
+- **Time in Ranges** - Visual bar chart showing distribution across all glucose ranges
+- **Daily Glucose Profiles** - Last 14 days displayed for pattern recognition
+- **Print-Friendly** - Optimized layout for printing and sharing with healthcare providers
+- **Clinical Goals** - Displays standard AGP targets (>70% TIR, <4% below range, CV <36%)
+
+The AGP format is recognized by endocrinologists worldwide and makes it easy to discuss your data during appointments.
 
 ## Interactive HTML Reports
 
@@ -67,6 +89,7 @@ Just ask naturally:
 "What's my current glucose?"
 "Generate a report of my last 90 days"
 "Compare this week to last week"
+"Generate an AGP report for my doctor"
 "What patterns do you see in my data?"
 "What's happening on Tuesdays after lunch?"
 "When do I tend to go low?"
@@ -336,6 +359,12 @@ python scripts/cgm.py report --days 30 --open
 
 # Save report to specific location
 python scripts/cgm.py report --days 90 --output ~/my_glucose_report.html
+
+# Generate AGP (Ambulatory Glucose Profile) report - clinical standard format
+python scripts/cgm.py agp --days 14 --open
+
+# Generate AGP report with custom period
+python scripts/cgm.py agp --days 30 --output ~/agp_report.html
 
 # Refresh data from Nightscout
 python scripts/cgm.py refresh --days 90
