@@ -5,12 +5,13 @@
 
 An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Continuous Glucose Monitor (CGM) data from [Nightscout](http://www.nightscout.info/). Works with GitHub Copilot CLI, Claude Code, and VS Code agent mode.
 
-![Heatmap showing time-in-range by day and hour](images/heatmap.png)
+![Nightscout CGM Report with interactive charts](images/newcharts.png)
 
 > **⚠️ Disclaimer:** We are not doctors. This is DIY body hacking by and for the diabetes community. If you're using Nightscout, you already know the deal: **don't trust anyone or anything to make decisions about your blood sugar except yourself.** This tool is for informational purposes only and should never replace medical advice, your own judgment, or looking at your actual CGM.
 
 ## Features
 
+- **Interactive HTML Reports** - Generate comprehensive local reports with charts (like [tally](https://github.com/davidfowl/tally) for diabetes)
 - **Current Glucose** - Real-time blood glucose with trend direction
 - **Pattern Analysis** - Find your best/worst times, problem days, overnight patterns
 - **Specific Day Analysis** - Drill into what happened on a particular date
@@ -20,12 +21,49 @@ An [Agent Skill](https://github.com/agentskills/agentskills) for analyzing Conti
 - **Statistics** - Time-in-range, GMI (estimated A1C), glucose variability
 - **Privacy-First** - All data stored and analyzed locally on your machine
 
+## Interactive HTML Reports
+
+Generate beautiful, self-contained HTML reports with interactive charts - similar to [tally](https://github.com/davidfowl/tally) but for diabetes/CGM data:
+
+```bash
+python scripts/cgm.py report --days 90 --open
+```
+
+![Glucose distribution, heatmap, and weekly summary](images/heatmap2.png)
+
+### Report Features
+
+- **Date Range Controls** - Quick buttons for 7d/14d/30d/90d/6mo/1yr/All, plus custom date pickers
+- **All charts update dynamically** - No server needed, everything recalculates in your browser
+- **Key Stats Dashboard** - Time-in-Range %, GMI (estimated A1C), CV (variability), average glucose
+- **7 Interactive Charts:**
+  - Time-in-Range pie chart
+  - Modal Day (typical 24-hour profile with percentile bands)
+  - Daily trends (average glucose + TIR per day)
+  - Day of week comparison
+  - Glucose distribution histogram
+  - Time-in-Range heatmap (day × hour) with hover tooltips
+  - Weekly summary
+
+### Color Scheme
+
+Uses CGM-style colors (like Dexcom/Libre):
+- 🔵 **Blue** for lows (easier to see at a glance)
+- 🟢 **Green** for in-range
+- 🟡 **Yellow** for highs
+- 🔴 **Red** for very high
+
+### Privacy
+
+The report is a single self-contained HTML file. **All your data stays local** - no data is sent anywhere. Open it in any browser, share it with your doctor, or keep it for your records.
+
 ## Quick Examples
 
 Just ask naturally:
 
 ```
 "What's my current glucose?"
+"Generate a report of my last 90 days"
 "What patterns do you see in my data?"
 "What's happening on Tuesdays after lunch?"
 "When do I tend to go low?"
@@ -39,6 +77,9 @@ Just ask naturally:
 Or use the CLI directly:
 
 ```bash
+# Generate interactive HTML report
+python scripts/cgm.py report --days 90 --open
+
 # Current glucose
 python scripts/cgm.py current
 
@@ -209,6 +250,12 @@ Just ask naturally:
 ### Direct CLI Usage
 
 ```bash
+# Generate interactive HTML report (opens in browser)
+python scripts/cgm.py report --days 90 --open
+
+# Generate report for custom period
+python scripts/cgm.py report --days 30 --output my_report.html
+
 # Get current glucose reading
 python scripts/cgm.py current
 
