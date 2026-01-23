@@ -2873,9 +2873,32 @@ def generate_html_report(days=90, output_path=None):
             box-shadow: 0 6px 16px rgba(0,0,0,0.4);
         }
         
-        .print-button::before {
-            content: '🖨️';
-            font-size: 1.2rem;
+        .agp-button {
+            position: fixed;
+            bottom: 20px;
+            right: 230px;
+            background: #059669;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            line-height: normal;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .agp-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+        }
+        
+        @media print {
+            .agp-button {
+                display: none !important;
+            }
         }
     </style>
 </head>
@@ -4358,8 +4381,9 @@ def generate_html_report(days=90, output_path=None):
         }
     </script>
     
-    <!-- Print Button -->
-    <button class="print-button" onclick="window.print()">Print / Save PDF</button>
+    <!-- Print Button and AGP Link -->
+    <button class="print-button" onclick="window.print()">🖨️ Print / Save PDF</button>
+    <a href="nightscout_agp_report.html" class="agp-button">📋 AGP Report (for Doctor)</a>
 </body>
 </html>
 '''
@@ -4419,6 +4443,10 @@ def generate_html_report(days=90, output_path=None):
     # Write the file
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html_content)
+    
+    # Also generate AGP report (uses same data, standard 14-day window)
+    agp_days = min(days, 14)  # AGP standard is 14 days
+    generate_agp_report(days=agp_days)
     
     return {
         "status": "success",
