@@ -2745,6 +2745,138 @@ def generate_html_report(days=90, output_path=None):
                 font-size: 1.8rem;
             }
         }
+        
+        /* Print Styles */
+        @media print {
+            body {
+                background: white !important;
+                color: #000 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            
+            .container {
+                max-width: 100%%;
+                padding: 10px;
+            }
+            
+            /* Force heatmap colors to print */
+            .heatmap-cell {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            
+            /* Hide interactive elements and compare section */
+            .date-controls,
+            .print-button,
+            .alerts-toggle,
+            .alerts-expand,
+            .compare-section {
+                display: none !important;
+            }
+            
+            /* Force expand alerts section */
+            .alerts-section.collapsed .alerts-body {
+                display: block !important;
+            }
+            
+            /* Page breaks */
+            .chart-section,
+            .stats-grid,
+            .alerts-section {
+                page-break-inside: avoid;
+                margin-bottom: 20px;
+            }
+            
+            header {
+                page-break-after: avoid;
+            }
+            
+            /* Fix chart clipping - give more height for axis labels */
+            .chart-container {
+                height: 400px !important;
+                overflow: visible !important;
+            }
+            
+            .chart-container.tall {
+                height: 500px !important;
+            }
+            
+            /* White backgrounds for sections */
+            .alerts-section,
+            .chart-section,
+            .heatmap-container,
+            .weekly-summary {
+                background: white !important;
+                border: 1px solid #ccc !important;
+            }
+            
+            .disclaimer {
+                background: #f5f5f5 !important;
+                border-color: #666 !important;
+            }
+            
+            .stat-card {
+                background: #f9f9f9 !important;
+                border: 1px solid #ccc !important;
+            }
+            
+            /* Dark text for headings and labels */
+            h1, h2, h3, h4, .stat-card .label {
+                color: #000 !important;
+            }
+            
+            .alert-item {
+                background: #f9f9f9 !important;
+            }
+            
+            /* Fix alert text visibility */
+            .alert-item,
+            .alert-item *,
+            .alerts-body,
+            .alerts-body * {
+                color: #000 !important;
+            }
+            
+            .alerts-header h2 {
+                color: #000 !important;
+            }
+            
+            /* Footer */
+            footer {
+                page-break-before: avoid;
+            }
+        }
+        
+        /* Print button */
+        .print-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 1000;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .print-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+        }
+        
+        .print-button::before {
+            content: '🖨️';
+            font-size: 1.2rem;
+        }
     </style>
 </head>
 <body>
@@ -4225,6 +4357,9 @@ def generate_html_report(days=90, output_path=None):
             return parts.join(' • ');
         }
     </script>
+    
+    <!-- Print Button -->
+    <button class="print-button" onclick="window.print()">Print / Save PDF</button>
 </body>
 </html>
 '''
